@@ -1,0 +1,107 @@
+###############################################################################
+# solarnet.baseUrl <url>
+# 
+# The absolute URL to the SolarNet instance to use.
+
+solarnet.baseUrl: https://data.solarnetwork.net
+
+###############################################################################
+# solarnet.auth.timeoutSeconds <integer>
+# solarnet.auth.instructionCompletedWaitMs <integer>
+# solarnet.auth.instructionIncompleteWaitMs <integer>
+# 
+# The `timeoutSeconds` property is the overall maximum amount of time to wait
+# for the SolarNetwork direct SSH authentication process to complete, which
+# includes the time for the destination node to completely process the
+# issued `StartRemoteSsh` instruction.
+#
+# The `instructionCompletedWaitMs` is a "pause" time after the `StartRemoteSsh`
+# instruction status changes to `Completed`, to give some time for the node's
+# SSH connection to SolarSSH to actually get established, which can take
+# several seconds on slow network connections. The `instructionIncompleteWaitMs`
+# is a "pause" time between calls to check the status of the `StartRemoteSsh`
+# instruction, while it is still incomplete.
+
+solarnet.auth:
+  timeoutSeconds: 300
+  instructionCompletedWaitMs: 1000
+  instructionIncompleteWaitMs: 1000
+
+ssh:
+  ###############################################################################
+  # ssh.host <hostname or IP address>
+  # ssh.port <integer>
+  # 
+  # The host value to include in the StartRemoteSsh instruction, which should
+  # point to the DNS name or IP address this server is accessible on. The port
+  # value is the port the SSH server will listen on, as well as include in the
+  # StartRemoteSsh instruction. 
+  
+  host: localhost
+  port: 8022
+
+  ###############################################################################
+  # ssh.direct.port <integer>
+  # 
+  # The port number to listen on for direct SSH connections, which use username
+  # values in the form `nodeId:tokenId` to dynamically issue a `StartRemoteSsh`
+  # instruction for the given node and connect immediately. Works best for 
+  # nodes connected to SolarIn/MQTT for fast instruction handling.
+  
+  direct.port: 9022
+
+  ###############################################################################
+  # ssh.keyResource <resource string>
+  # ssh.keyPassword <string>
+  # 
+  # The location of the SSH server's private key to use. This can be a classpath
+  # entry by using a classpath: prefix, a WAR relative resource (without any 
+  # prefix) or a file path with a file: prefix.
+  
+  keyResource: classpath:/sshd-server-key
+  keyPassword: changeit
+
+
+  ###############################################################################
+  # ssh.reversePort.min <integer>
+  # ssh.reversePort.max <integer>
+  # 
+  # These define the minimum and maximum port numbers that can be used for 
+  # reverse SSH listening. Each SolarSSH client SSH connection is allowed to 
+  # open two ports, which the server allocates starting at 'min' and increasing
+  # by two until it can find two unused ports.
+
+  reversePort.min: 49000
+  reversePort.max: 64000
+
+
+  ###############################################################################
+  # ssh.sessionExpireSeconds <integer>
+  # 
+  # The minimum number of seconds a new SSH session is allowed to exist without
+  # getting associated with a SolarNode SSH connection, before the server will
+  # delete the session. This is essentially the time between calling the /new
+  # endpoint and when the SolarNode actually connects to SolarSSH.
+
+  sessionExpireSeconds: 300
+
+
+  ###############################################################################
+  # ssh.sessionExpireCleanupJobMs <integer>
+  # 
+  # The frequency at which to run a job to look for expired sessions and to 
+  # delete them, in milliseconds.
+
+  sessionExpireCleanupJobMs: 60000
+
+
+  ###############################################################################
+  # ssh.sessionProxyExpireCleanupJobMs <integer>
+  # 
+  # The frequency at which to run a job to look for expired HTTP proxy sessions
+  # and to delete them, in milliseconds.
+
+  sessionProxyExpireCleanupJobMs: 60000
+
+  direct:
+    port: 9022
