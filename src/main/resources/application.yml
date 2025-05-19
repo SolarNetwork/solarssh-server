@@ -1,0 +1,55 @@
+app:
+  cache.persistence.path: "var/cache"
+
+ssh:
+  host: ssh.solarnetwork.net
+# TODO
+
+logging:
+  level:
+    ROOT: INFO
+    io.netty.handler.logging.LoggingHandler: WARN
+    net.solarnetwork.solarssh.impl.DynamicDirectTcpipFactory: INFO
+    org.apache.mina: ERROR
+    org.apache.sshd.common.session: ERROR
+  pattern:
+    console: "${LOG_LEVEL_PATTERN:%5p} %-40.40logger{39}: %m%n${LOG_EXCEPTION_CONVERSION_WORD:%wEx}"
+    file:  "%d{yyyy-MM-dd HH:mm:ss.SSS} ${LOG_LEVEL_PATTERN:%5p} %-40.40logger{39} : %m%n${LOG_EXCEPTION_CONVERSION_WORD:%wEx}"
+
+spring:
+  datasource:
+    hikari:
+      minimumIdle: 0
+      connectionTimeout: 30000
+      idleTimeout: 600000
+      maxLifetime: 1800000
+    url: jdbc:postgresql://localhost/solarnetwork
+    username: solarauth
+    password: solarauth
+    initialize: false
+    
+server:
+  port: 8081
+  servlet.context-path: "/"
+
+---
+spring:
+  config.activate.on-profile: "development"
+
+logging:
+  level:
+    net.solarnetwork.solarssh: DEBUG
+
+ssh:
+  host: ssh.solarnetworkdev.net
+
+solarnet.baseUrl: http://solarnetworkdev.net:9081
+
+---
+spring:
+  config.activate.on-profile: "production"
+
+logging:
+  level:
+    ROOT: WARN
+    net.solarnetwork.solarssh: INFO

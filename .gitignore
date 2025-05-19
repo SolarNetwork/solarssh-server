@@ -1,0 +1,8 @@
+/.gradle/
+/bin/
+/build/
+/var/
+/*.yml
+/*.log
+.DS_Store
+*.jpage

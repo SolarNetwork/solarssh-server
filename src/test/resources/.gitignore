@@ -1,0 +1,4 @@
+/application-test.properties
+/logback-test.xml
+/sshd-server-key*
+/META-INF/

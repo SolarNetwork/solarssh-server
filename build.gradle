@@ -1,0 +1,214 @@
+plugins {
+    id 'war'
+    id 'checkstyle'
+    id 'eclipse'
+	id 'org.springframework.boot' version '3.4.5'
+}
+
+apply plugin: 'war'
+apply plugin: 'checkstyle'
+apply plugin: 'io.spring.dependency-management'
+
+dependencyManagement {
+	imports {
+		mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+	}
+}
+
+description = 'SolarSSH Server'
+version = "${version}"
+
+base {
+	archivesName = 'solarssh'
+}
+
+group = "net.solarnetwork.central"
+
+java {
+	toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+ext {
+	bouncyCastleVersion 	= '1.80'
+	checkstyleVersion 		= '10.23.1'
+    sshdVersion				= '2.15.0'
+
+    libraries = [
+        // Test dependencies.
+        mockito: 'org.mockito:mockito-core',
+        mockitoJupiter: 'org.mockito:mockito-junit-jupiter'
+    ]
+}
+
+configurations {
+	all*.exclude group: 'commons-logging'
+	all*.exclude group: 'io.netty'
+	all*.exclude group: 'log4j', module: 'log4j'
+	all*.exclude group: 'net.sf.supercsv'
+	all*.exclude group: 'net.solarnetwork.common', module: 'net.solarnetwork.common.mqtt'
+	all*.exclude group: 'org.apache.tomcat', module: 'tomcat-jdbc'
+	all*.exclude group: 'org.mybatis'
+	all*.exclude group: 'org.mybatis.spring.boot'
+	all*.exclude group: 'org.osgi'
+	all*.exclude group: 'org.springframework', module: 'spring-messaging'
+	all*.exclude group: 'org.springframework.security'
+	all*.exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+	all*.exclude group: 'software.amazon.awssdk'
+}
+
+dependencies {
+	// WAR
+	providedRuntime 'org.springframework.boot:spring-boot-starter-tomcat'
+	
+	// Spring
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf';
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+	// JSON
+	implementation "com.fasterxml.jackson.core:jackson-annotations"
+	implementation "com.fasterxml.jackson.core:jackson-core"
+	implementation "com.fasterxml.jackson.core:jackson-databind"
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor'
+	
+	// DB
+	implementation "org.postgresql:postgresql"
+
+	// SSH
+    implementation "org.apache.sshd:sshd-mina:${sshdVersion}"
+    implementation "org.bouncycastle:bcpg-jdk18on:${bouncyCastleVersion}"
+    implementation "org.bouncycastle:bcpkix-jdk18on:${bouncyCastleVersion}"
+    implementation 'net.i2p.crypto:eddsa:0.3.0'
+
+	// SolarNetwork
+	implementation 'net.solarnetwork.common:net.solarnetwork.common:3.31+'
+	implementation 'net.solarnetwork.common:net.solarnetwork.common.web.jakarta:2.0+'
+	implementation 'net.solarnetwork.central:solarnet-common:2.16+'
+	
+	// JCache
+	implementation 'javax.cache:cache-api'
+	implementation 'org.ehcache:ehcache'
+	
+    // HTTP
+    implementation 'org.mitre.dsmiley.httpproxy:smiley-http-proxy-servlet:2.0'
+    
+    // Testing
+    testImplementation libraries.mockito,
+            libraries.mockitoJupiter
+	testImplementation 'ch.qos.logback:logback-classic:1.5.18'
+}
+
+jar {
+    manifest {
+        attributes 'Implementation-Version': version
+    }
+}
+
+[
+    compileJava,
+    compileTestJava
+].each() {
+	it.options.release = 21
+    it.options.compilerArgs += [
+        "-Xlint:all",
+        "-Xlint:-options",
+        "-Xlint:-path",
+		"-Xlint:-serial",
+		"-Xlint:-this-escape",
+        "-Xlint:-try",
+		"-parameters"
+    ]
+    it.options.encoding = "UTF-8"
+    if (rootProject.hasProperty('failOnWarnings') && rootProject.failOnWarnings.toBoolean()) {
+        it.options.compilerArgs += ["-Werror"]
+    }
+}
+
+compileTestJava {
+    options.compilerArgs += [
+        "-Xlint:-serial",
+        "-Xlint:-static",
+		"-Xlint:-this-escape"
+    ]
+}
+
+jar.manifest {
+    attributes('Implementation-Title': name,
+    'Implementation-Version': version,
+    'Built-By': System.getProperty('user.name'),
+    'Built-JDK': System.getProperty('java.version'))
+}
+
+javadoc.options {
+    encoding = 'UTF-8'
+    use = true
+    links 'https://docs.oracle.com/en/java/javase/21/docs/api/'
+    source = "21"
+}
+
+allprojects {
+    tasks.withType(Javadoc) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+        options.addBooleanOption('html5', true)
+    }
+}
+
+task javadocJar(type: Jar) {
+    from javadoc
+    archiveClassifier = 'javadoc'
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    archiveClassifier = 'sources'
+}
+
+eclipse {
+	jdt {
+		javaRuntimeName 'JavaSE-21'
+		file {
+			withProperties { properties ->
+				// set properties for the file org.eclipse.jdt.core.prefs to enable -parameters for Spring 6
+				properties['org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode'] = 'enabled'
+				properties['org.eclipse.jdt.core.compiler.codegen.methodParameters'] = 'generate'
+			}
+		}
+	}
+}
+
+checkstyle {
+    toolVersion = "${checkstyleVersion}"
+	configFile = rootProject.file('config/checkstyle/checkstyle.xml')
+    ignoreFailures = false
+    if (rootProject.hasProperty("checkstyle.ignoreFailures")) {
+        ignoreFailures = rootProject.properties["checkstyle.ignoreFailures"].toBoolean()
+    }
+}
+
+checkstyleMain {
+    source = fileTree(dir: "src/main", include: "**/*.java")
+}
+
+checkstyleTest {
+    source = fileTree(dir: "src/test", include: "**/*.java")
+}
+
+test {
+	useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+        showExceptions true
+        showCauses true
+        showStackTraces true
+    }
+    maxHeapSize = '1500m'
+}
