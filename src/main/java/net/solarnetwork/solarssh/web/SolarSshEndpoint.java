@@ -22,6 +22,8 @@
 
 package net.solarnetwork.solarssh.web;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -240,7 +242,7 @@ public class SolarSshEndpoint extends Endpoint implements MessageHandler.Whole<S
       PipedInputStream sshStdin = new PipedInputStream();
       PipedOutputStream pipeOut = new PipedOutputStream(sshStdin);
 
-      wsInputSink = new OutputStreamWriter(pipeOut, "UTF-8");
+      wsInputSink = new OutputStreamWriter(pipeOut, UTF_8);
 
       OutputStream sshStdout = new AsyncTextOutputStream(websocketSession);
 

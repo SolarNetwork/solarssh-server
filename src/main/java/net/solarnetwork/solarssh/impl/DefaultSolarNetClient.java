@@ -22,6 +22,8 @@
 
 package net.solarnetwork.solarssh.impl;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.StringReader;
@@ -251,7 +253,7 @@ public class DefaultSolarNetClient extends HttpClientSupport implements SolarNet
     }
     String body = xWWWFormURLEncoded(data);
     log.trace("Encoded HTTP POST data {} for {} as {}", data, uri, body);
-    OutputStreamWriter out = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
+    OutputStreamWriter out = new OutputStreamWriter(conn.getOutputStream(), UTF_8);
     FileCopyUtils.copy(new StringReader(body), out);
     if (conn instanceof HttpURLConnection) {
       HttpURLConnection http = (HttpURLConnection) conn;

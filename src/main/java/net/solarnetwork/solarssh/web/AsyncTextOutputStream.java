@@ -25,6 +25,7 @@ package net.solarnetwork.solarssh.web;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.RemoteEndpoint.Async;
@@ -40,7 +41,7 @@ public class AsyncTextOutputStream extends OutputStream {
 
   private final Session session;
   private final Async remote;
-  private final Charset charset = Charset.forName("UTF-8");
+  private final Charset charset = StandardCharsets.UTF_8;
 
   /**
    * Wraps a websocket {@code Session} as a text-oriented {@link OutputStream} using the socket's
