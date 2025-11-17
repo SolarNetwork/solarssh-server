@@ -199,24 +199,30 @@ public class SolarSshController {
     try {
       InetAddress src = InetAddress.getByName(remoteAddr);
       if (!src.isLoopbackAddress()) {
-        Byte count = bruteForceDenyList.get(src);
-        if (count == null) {
+        final Byte currCount = bruteForceDenyList.get(src);
+        byte count = 0;
+        if (currCount == null) {
           count = (byte) 1;
-        } else if (count.byteValue() != (byte) 0xFF) {
-          count = (byte) ((count.byteValue() & 0xFF) + 1);
+        } else if (currCount.byteValue() != (byte) 0xFF) {
+          count = (byte) ((currCount.byteValue() & 0xFF) + 1);
         }
-        log.info("{} authentication attempt [{}] failed: attempt {}", src, sessionId,
-            Byte.toUnsignedInt(count));
-        bruteForceDenyList.put(src, count);
         final int attempts = Byte.toUnsignedInt(count);
+        String username = null;
+        Matcher m = SNWS_V2_KEY_PATTERN.matcher(preSignedAuthorization);
+        if (m.find()) {
+          username = m.group(1);
+        }
         if (attempts >= bruteForceMaxTries) {
-          String username = null;
-          Matcher m = SNWS_V2_KEY_PATTERN.matcher(preSignedAuthorization);
-          if (m.find()) {
-            username = m.group(1);
-          }
-          logBruteForceDeny(username, src, attempts, "block");
+          logBruteForceDeny(username, src, attempts, "ip-block");
           throw new RuntimeSshException("Blocked.");
+        } else {
+          log.info("{} authentication attempt [{}] failed: attempt {}", src, username, attempts);
+          if (currCount == null) {
+            bruteForceDenyList.putIfAbsent(src, count);
+          } else {
+            bruteForceDenyList.replace(src, currCount, count);
+          }
+          logBruteForceDeny(username, src, attempts, "ip-fail");
         }
       }
     } catch (UnknownHostException e) {
