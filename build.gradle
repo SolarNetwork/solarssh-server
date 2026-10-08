@@ -92,9 +92,15 @@ dependencies {
     implementation 'net.i2p.crypto:eddsa:0.3.0'
 
 	// SolarNetwork
-	implementation 'net.solarnetwork.common:net.solarnetwork.common:3.31+'
-	implementation 'net.solarnetwork.common:net.solarnetwork.common.web.jakarta:2.0+'
-	implementation 'net.solarnetwork.central:solarnet-common:2.16+'
+	implementation('net.solarnetwork.common:net.solarnetwork.common:3.31+') {
+		transitive = false
+	}
+	implementation('net.solarnetwork.common:net.solarnetwork.common.web.jakarta:2.0+') {
+		transitive = false
+	}
+	implementation('net.solarnetwork.central:solarnet-common:2.16+') {
+		transitive = false
+	}
 	
 	// JCache
 	implementation 'javax.cache:cache-api'
