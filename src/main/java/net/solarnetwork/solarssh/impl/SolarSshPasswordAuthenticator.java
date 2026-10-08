@@ -55,7 +55,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * {@link PasswordAuthenticator} for direct SolarSSH connections.
  * 
  * @author matt
- * @version 1.1
+ * @version 1.2
  */
 public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
 
@@ -141,7 +141,7 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
             .queryParams(instructionParams);
         sshSession = solarSshService.startSession(sshSession.getId(), now.toEpochMilli(),
             authBuilder.build());
-        return waitForNodeInstructionToComplete(sshSession.getId(), nodeId, tokenId,
+        return waitForNodeInstructionToComplete(session, sshSession.getId(), nodeId, tokenId,
             INSTRUCTION_TOPIC_START_REMOTE_SSH, sshSession.getStartInstructionId(), authBuilder);
       } catch (AuthorizationException e) {
         log.info("Authorization failed creating new SshSession for {}", username);
@@ -170,10 +170,12 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
     return false;
   }
 
-  private boolean waitForNodeInstructionToComplete(String sessionId, Long nodeId, String tokenId,
-      String topic, Long instructionId, Snws2AuthorizationBuilder authBuilder) throws IOException {
+  private boolean waitForNodeInstructionToComplete(ServerSession session, String sessionId,
+      Long nodeId, String tokenId, String topic, Long instructionId,
+      Snws2AuthorizationBuilder authBuilder) throws IOException {
     final long expire = System.currentTimeMillis() + (1000L * this.maxNodeInstructionWaitSecs);
     while (System.currentTimeMillis() < expire) {
+      requireClientConnected(session, sessionId, nodeId);
       Instant now = Instant.now();
       authBuilder.reset().date(now).host(snHost).path("/solaruser/api/v1/sec/instr/view")
           .queryParams(singletonMap("id", instructionId.toString()));
@@ -182,6 +184,7 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
       if (state == SolarNodeInstructionState.Completed) {
         log.info("Token {} {} instruction {} completed", tokenId, topic, instructionId);
         while (System.currentTimeMillis() < expire) {
+          requireClientConnected(session, sessionId, nodeId);
           SshSession sess = solarSshService.findOne(sessionId);
           if (sess == null) {
             break;
@@ -214,6 +217,30 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
     }
     throw new IOException("Timeout waiting " + this.maxNodeInstructionWaitSecs + "s for session "
         + sessionId + " node " + nodeId + " instruction {}" + instructionId + " to complete.");
+  }
+
+  /**
+   * Stop waiting on behalf of a client that has disconnected.
+   * 
+   * <p>
+   * This throws rather than returning a failure, so the attempt is not counted as a bad password.
+   * </p>
+   * 
+   * @param session
+   *        the client session
+   * @param sessionId
+   *        the SolarSSH session ID
+   * @param nodeId
+   *        the node ID
+   * @throws IOException
+   *         if the client session is closed or closing
+   */
+  private static void requireClientConnected(ServerSession session, String sessionId, Long nodeId)
+      throws IOException {
+    if (!session.isOpen()) {
+      throw new IOException("Client disconnected while waiting for session " + sessionId
+          + " node " + nodeId + " to connect.");
+    }
   }
 
   /**
