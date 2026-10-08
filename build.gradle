@@ -36,9 +36,9 @@ repositories {
 }
 
 ext {
-	bouncyCastleVersion 	= '1.80'
+	bouncyCastleVersion 	= '1.86'
 	checkstyleVersion 		= '10.23.1'
-    sshdVersion				= '2.15.0'
+    sshdVersion				= '2.20.0'
 
     libraries = [
         // Test dependencies.

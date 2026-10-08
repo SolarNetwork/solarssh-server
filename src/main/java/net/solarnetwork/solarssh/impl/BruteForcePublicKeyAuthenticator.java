@@ -27,8 +27,6 @@ import java.security.PublicKey;
 
 import javax.cache.Cache;
 
-import org.apache.sshd.server.auth.AsyncAuthException;
-import org.apache.sshd.server.auth.password.PasswordChangeRequiredException;
 import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator;
 import org.apache.sshd.server.session.ServerSession;
 
@@ -63,8 +61,7 @@ public class BruteForcePublicKeyAuthenticator extends AbstractBruteForceAuthenti
   }
 
   @Override
-  public boolean authenticate(String username, PublicKey key, ServerSession session)
-      throws PasswordChangeRequiredException, AsyncAuthException {
+  public boolean authenticate(String username, PublicKey key, ServerSession session) {
     boolean result = delegate.authenticate(username, key, session);
     if (!result) {
       handleAuthenticationFailure(username, session);
