@@ -23,6 +23,7 @@
 package net.solarnetwork.solarssh.impl;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static java.util.Collections.unmodifiableList;
 import static net.solarnetwork.codec.JsonUtils.getJSONString;
 import static net.solarnetwork.solarssh.Globals.AUDIT_LOG;
@@ -38,6 +39,7 @@ import org.apache.sshd.common.session.Session;
 import org.apache.sshd.common.session.SessionListener;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.auth.password.PasswordAuthenticator;
+import org.apache.sshd.server.auth.password.UserAuthPasswordFactory;
 import org.apache.sshd.server.channel.ChannelSessionFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -53,7 +55,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Default SSH server service.
  * 
  * @author matt
- * @version 1.1
+ * @version 1.2
  */
 public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
 
@@ -117,6 +119,11 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
       auth = bf;
     }
     s.setPasswordAuthenticator(auth);
+
+    // password auth only: by default sshd also enables keyboard-interactive (which delegates to
+    // the same password authenticator) and public key auth via ~/.ssh/authorized_keys; this does
+    // not limit the auth methods clients can use with the node through the jump connection
+    s.setUserAuthFactories(singletonList(UserAuthPasswordFactory.INSTANCE));
 
     try {
       s.start();
