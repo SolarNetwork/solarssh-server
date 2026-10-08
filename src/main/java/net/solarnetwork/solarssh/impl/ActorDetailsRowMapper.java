@@ -27,9 +27,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.RowMapper;
 
-import net.solarnetwork.central.security.BasicSecurityPolicy;
-import net.solarnetwork.central.security.SecurityPolicy;
 import net.solarnetwork.codec.JsonUtils;
+import net.solarnetwork.domain.BasicSecurityPolicy;
+import net.solarnetwork.domain.SecurityPolicy;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.ActorDetails;
 
@@ -37,7 +37,7 @@ import net.solarnetwork.solarssh.domain.ActorDetails;
  * {@link RowMapper} for {@link ActorDetails}.
  * 
  * @author matt
- * @version 1.1
+ * @version 2.0
  */
 public class ActorDetailsRowMapper implements RowMapper<Actor> {
 

@@ -22,16 +22,16 @@ import java.sql.SQLException;
 
 import org.springframework.jdbc.core.RowMapper;
 
-import net.solarnetwork.central.security.BasicSecurityPolicy;
-import net.solarnetwork.central.security.SecurityPolicy;
 import net.solarnetwork.codec.JsonUtils;
+import net.solarnetwork.domain.BasicSecurityPolicy;
+import net.solarnetwork.domain.SecurityPolicy;
 import net.solarnetwork.solarssh.domain.SnTokenDetails;
 
 /**
  * {@link RowMapper} for {@link SnTokenDetails}.
  * 
  * @author matt
- * @version 1.1
+ * @version 2.0
  */
 public class SnTokenDetailsRowMapper implements RowMapper<SnTokenDetails> {
 

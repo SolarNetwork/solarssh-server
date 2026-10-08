@@ -92,13 +92,10 @@ dependencies {
     implementation 'net.i2p.crypto:eddsa:0.3.0'
 
 	// SolarNetwork
-	implementation('net.solarnetwork.common:net.solarnetwork.common:3.31+') {
+	implementation('net.solarnetwork.common:net.solarnetwork.common:4.54.0') {
 		transitive = false
 	}
-	implementation('net.solarnetwork.common:net.solarnetwork.common.web.jakarta:2.0+') {
-		transitive = false
-	}
-	implementation('net.solarnetwork.central:solarnet-common:2.16+') {
+	implementation('net.solarnetwork.common:net.solarnetwork.common.web.jakarta:2.6.0') {
 		transitive = false
 	}
 	

@@ -39,16 +39,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import net.solarnetwork.central.web.PingController;
 import net.solarnetwork.service.PingTest;
 import net.solarnetwork.solarssh.config.JsonConfig;
 import net.solarnetwork.solarssh.web.SolarSshHttpProxyController;
+import net.solarnetwork.web.jakarta.support.PingController;
 
 /**
  * WebMVC configuration.
  * 
  * @author matt
- * @version 1.2
+ * @version 2.0
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -99,7 +99,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
   static class SolarInPingController extends PingController {
 
     public SolarInPingController(List<PingTest> tests) {
-      super(tests);
+      super();
+      setTests(tests);
     }
 
   }
