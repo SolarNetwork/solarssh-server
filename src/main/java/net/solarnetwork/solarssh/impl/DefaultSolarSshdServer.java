@@ -38,6 +38,7 @@ import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.auth.pubkey.CachingPublicKeyAuthenticator;
 import org.apache.sshd.server.session.ServerSession;
 
+import net.solarnetwork.solarssh.dao.SolarNodeDao;
 import net.solarnetwork.solarssh.dao.SshSessionDao;
 import net.solarnetwork.solarssh.domain.SshSession;
 import net.solarnetwork.solarssh.service.SolarSshdService;
@@ -46,7 +47,7 @@ import net.solarnetwork.solarssh.service.SolarSshdService;
  * Service to manage the SSH server.
  * 
  * @author matt
- * @version 1.2
+ * @version 1.3
  */
 public class DefaultSolarSshdServer extends AbstractSshdServer implements SolarSshdService {
 
@@ -57,6 +58,7 @@ public class DefaultSolarSshdServer extends AbstractSshdServer implements SolarS
   /** The default port to listen on. */
   public static final int DEFAULT_LISTEN_PORT = 8022;
 
+  private SolarNodeDao nodeDao;
   private SshServer server;
 
   /**
@@ -80,9 +82,13 @@ public class DefaultSolarSshdServer extends AbstractSshdServer implements SolarS
     }
     s = createServer();
 
-    // TODO: verify if CachingPublicKeyAuthenticator is appropriate
-    s.setPublickeyAuthenticator(
-        new CachingPublicKeyAuthenticator(new SolarSshPublicKeyAuthenticator(sessionDao)));
+    if (nodeDao == null) {
+      log.warn("No SolarNodeDao configured: node SSH public keys will NOT be verified.");
+    }
+
+    // cache results per session, as clients query a key before signing with it
+    s.setPublickeyAuthenticator(new CachingPublicKeyAuthenticator(
+        new SolarSshPublicKeyAuthenticator(sessionDao, nodeDao)));
 
     try {
       s.start();
@@ -182,6 +188,30 @@ public class DefaultSolarSshdServer extends AbstractSshdServer implements SolarS
         }
       }
     }
+  }
+
+  /**
+   * Get the node DAO.
+   * 
+   * @return the DAO used to verify node SSH public keys
+   */
+  public SolarNodeDao getNodeDao() {
+    return nodeDao;
+  }
+
+  /**
+   * Set the node DAO.
+   * 
+   * <p>
+   * When configured, nodes must authenticate with the SSH public key they have published to their
+   * metadata. When {@literal null}, any key is accepted for an existing session.
+   * </p>
+   * 
+   * @param nodeDao
+   *        the DAO to use to verify node SSH public keys
+   */
+  public void setNodeDao(SolarNodeDao nodeDao) {
+    this.nodeDao = nodeDao;
   }
 
 }

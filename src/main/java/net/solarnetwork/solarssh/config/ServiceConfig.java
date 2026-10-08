@@ -43,6 +43,7 @@ import net.solarnetwork.solarssh.impl.DefaultSolarSshService;
 import net.solarnetwork.solarssh.impl.DefaultSolarSshdDirectServer;
 import net.solarnetwork.solarssh.impl.DefaultSolarSshdServer;
 import net.solarnetwork.solarssh.impl.JdbcActorDao;
+import net.solarnetwork.solarssh.impl.JdbcSolarNodeDao;
 import net.solarnetwork.solarssh.service.SolarNetClient;
 import net.solarnetwork.solarssh.service.SolarSshService;
 
@@ -50,7 +51,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Main service configuration.
  * 
  * @author matt
- * @version 1.2
+ * @version 1.3
  */
 @Configuration
 @EnableScheduling
@@ -67,6 +68,9 @@ public class ServiceConfig {
 
   @Value("${ssh.keyPassword:changeit}")
   private String sshKeyPassword = null;
+
+  @Value("${ssh.verifyNodePublicKey:true}")
+  private boolean verifyNodePublicKey = true;
 
   @Value("${ssh.bruteForce.maxTries:3}")
   private int bruteForceMaxTries = 3;
@@ -155,6 +159,9 @@ public class ServiceConfig {
     service.setServerKeyPassword(sshKeyPassword);
     service.setBruteForceDenyList(bruteForceDenyList);
     service.setBruteForceMaxTries(bruteForceMaxTries);
+    if (verifyNodePublicKey) {
+      service.setNodeDao(nodeDao());
+    }
     return service;
   }
 
@@ -198,6 +205,16 @@ public class ServiceConfig {
   public JdbcActorDao actorDao() {
     JdbcActorDao dao = new JdbcActorDao(jdbcOps);
     return dao;
+  }
+
+  /**
+   * Get the node DAO.
+   * 
+   * @return the node DAO
+   */
+  @Bean
+  public JdbcSolarNodeDao nodeDao() {
+    return new JdbcSolarNodeDao(jdbcOps);
   }
 
 }

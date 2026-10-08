@@ -79,6 +79,18 @@ ssh:
 
 
   ###############################################################################
+  # ssh.verifyNodePublicKey <boolean>
+  #
+  # When true, a SolarNode connecting to the SSH server must authenticate with
+  # the SSH public key it has published to the `ssh-public-key` info property
+  # of its node metadata. The key is read from the `solarnet.sn_node_meta`
+  # table, so the database user must be allowed to select from it. When false,
+  # any key is accepted for an existing session.
+
+  verifyNodePublicKey: true
+
+
+  ###############################################################################
   # ssh.reversePort.min <integer>
   # ssh.reversePort.max <integer>
   # 

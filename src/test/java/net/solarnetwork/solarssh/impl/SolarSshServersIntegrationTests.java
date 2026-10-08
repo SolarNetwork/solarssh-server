@@ -30,6 +30,7 @@ import static net.solarnetwork.solarssh.service.SolarNetClient.REVERSE_PORT_PARA
 import static net.solarnetwork.solarssh.service.SolarNetClient.USER_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -73,6 +74,7 @@ import org.apache.sshd.client.config.hosts.HostConfigEntryResolver;
 import org.apache.sshd.client.session.ClientSession;
 import org.apache.sshd.client.session.ClientSession.ClientSessionEvent;
 import org.apache.sshd.common.NamedFactory;
+import org.apache.sshd.common.config.keys.PublicKeyEntry;
 import org.apache.sshd.common.config.keys.writer.openssh.OpenSSHKeyEncryptionContext;
 import org.apache.sshd.common.config.keys.writer.openssh.OpenSSHKeyPairResourceWriter;
 import org.apache.sshd.common.io.IoWriteFuture;
@@ -89,6 +91,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.FileSystemResource;
 
 import net.solarnetwork.solarssh.dao.ActorDao;
+import net.solarnetwork.solarssh.dao.SolarNodeDao;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.SolarNetInstruction;
 import net.solarnetwork.solarssh.domain.SolarNodeInstructionState;
@@ -122,6 +125,7 @@ public class SolarSshServersIntegrationTests {
   private final List<ClientSession> nodeSessions = new CopyOnWriteArrayList<>();
   private final AtomicLong instructionIds = new AtomicLong();
   private volatile boolean nodeResponds = true;
+  private KeyPair nodeKey;
   private ExecutorService executor;
   private ServerSocket echoServer;
   private SolarNetClient solarNetClient;
@@ -177,12 +181,19 @@ public class SolarSshServersIntegrationTests {
     service.setMinPort(minPort);
     service.setMaxPort(minPort + 200);
 
+    // like a node, publish the public key it authenticates with
+    nodeKey = newKeyPair();
+    SolarNodeDao nodeDao = mock(SolarNodeDao.class);
+    given(nodeDao.findSshPublicKey(NODE_ID))
+        .willReturn(PublicKeyEntry.toString(nodeKey.getPublic()) + " solar@solarnode");
+
     FileSystemResource hostKey = new FileSystemResource(writeHostKey());
 
     nodeServer = new DefaultSolarSshdServer(service);
     nodeServer.setPort(nodePort);
     nodeServer.setServerKeyResource(hostKey);
     nodeServer.setServerKeyPassword(KEY_PASSWORD);
+    nodeServer.setNodeDao(nodeDao);
     nodeServer.start();
 
     ActorDao actorDao = mock(ActorDao.class);
@@ -264,16 +275,20 @@ public class SolarSshServersIntegrationTests {
   }
 
   private ClientSession connectNode(String sessionId, int rport) {
+    return connectNode(sessionId, rport, nodeKey);
+  }
+
+  private ClientSession connectNode(String sessionId, int rport, KeyPair key) {
     try {
       ClientSession node = client.connect(sessionId, "127.0.0.1", nodePort)
           .verify(TIMEOUT_SECS, SECONDS).getSession();
       nodeSessions.add(node);
-      node.addPublicKeyIdentity(newKeyPair());
+      node.addPublicKeyIdentity(key);
       node.auth().verify(TIMEOUT_SECS, SECONDS);
       node.startRemotePortForwarding(new SshdSocketAddress("127.0.0.1", rport),
           new SshdSocketAddress("127.0.0.1", echoServer.getLocalPort()));
       return node;
-    } catch (IOException | GeneralSecurityException e) {
+    } catch (IOException e) {
       throw new RuntimeException(e);
     }
   }
@@ -366,6 +381,19 @@ public class SolarSshServersIntegrationTests {
     assertThrows(RuntimeException.class,
         () -> connectNode("not-a-session", sess.getReverseSshPort()),
         "Unknown session ID rejected");
+  }
+
+  @Test
+  public void nodeUnpublishedKey() throws Exception {
+    // GIVEN
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+
+    // THEN
+    assertThrows(RuntimeException.class,
+        () -> connectNode(sess.getId(), sess.getReverseSshPort(), newKeyPair()),
+        "Key the node has not published rejected");
+    assertNull(sess.getServerSession(), "Node session not bound");
+    assertNotNull(service.findOne(sess.getId()), "Session still available to the real node");
   }
 
   @Test

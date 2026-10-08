@@ -110,8 +110,9 @@ dependencies {
     testImplementation libraries.junit,
             libraries.mockito,
             libraries.mockitoJupiter
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly libraries.junitLauncher
-	testImplementation 'ch.qos.logback:logback-classic:1.5.18'
+	testImplementation 'ch.qos.logback:logback-classic'
 }
 
 jar {
