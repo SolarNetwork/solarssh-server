@@ -277,8 +277,8 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
   }
 
   /**
-   * Set the number of milliseconds to wait after checking for a node instruction to complete when
-   * discovered the instruction is not complete yet, before checking the instruction status again.
+   * Set the number of milliseconds to wait before each check of the status of a node instruction,
+   * including the first, while the instruction is not complete.
    * 
    * @param instructionIncompleteWaitMs
    *        the wait time, in milliseconds; defaults to

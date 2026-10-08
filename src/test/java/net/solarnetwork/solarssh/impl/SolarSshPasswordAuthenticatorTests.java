@@ -52,6 +52,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import net.solarnetwork.solarssh.AuthorizationException;
+import net.solarnetwork.solarssh.RateLimitExceededException;
 import net.solarnetwork.solarssh.dao.ActorDao;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.SolarNodeInstructionState;
@@ -62,7 +63,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Test cases for the {@link SolarSshPasswordAuthenticator} class.
  * 
  * @author matt
- * @version 1.1
+ * @version 1.2
  */
 @ExtendWith(MockitoExtension.class)
 public class SolarSshPasswordAuthenticatorTests {
@@ -129,6 +130,24 @@ public class SolarSshPasswordAuthenticatorTests {
     assertEquals(TOKEN_ID, sshSession.getTokenId(), "Token ID saved for stopping the node later");
     then(solarSshService).should(never()).stopSession(anyString(), anyLong(), anyString());
     then(solarSshService).should(never()).delete(any());
+  }
+
+  @Test
+  public void rateLimitedCheckingInstruction() throws Exception {
+    // GIVEN
+    given(session.isOpen()).willReturn(true);
+    given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
+        .willThrow(new RateLimitExceededException(0))
+        .willReturn(SolarNodeInstructionState.Completed);
+    sshSession.setServerSession(mock(Session.class));
+
+    // WHEN
+    boolean result = auth.authenticate(USERNAME, PASSWORD, session);
+
+    // THEN
+    assertTrue(result, "Authenticated after checking the instruction again");
+    then(solarSshService).should(times(2)).getInstructionState(eq(INSTRUCTION_ID), anyLong(),
+        anyString());
   }
 
   @Test

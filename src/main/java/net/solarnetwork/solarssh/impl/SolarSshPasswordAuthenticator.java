@@ -43,6 +43,7 @@ import org.springframework.http.MediaType;
 
 import net.solarnetwork.security.Snws2AuthorizationBuilder;
 import net.solarnetwork.solarssh.AuthorizationException;
+import net.solarnetwork.solarssh.RateLimitExceededException;
 import net.solarnetwork.solarssh.dao.ActorDao;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.DirectSshUsername;
@@ -228,12 +229,26 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
       Snws2AuthorizationBuilder authBuilder) throws IOException {
     final long expire = System.currentTimeMillis() + (1000L * this.maxNodeInstructionWaitSecs);
     while (System.currentTimeMillis() < expire) {
+      // wait before every check, including the first: the node cannot have completed the
+      // instruction yet, and SolarNetwork rate limits the requests made with the token
+      try {
+        Thread.sleep(instructionIncompleteWaitMs);
+      } catch (InterruptedException e) {
+        break;
+      }
       requireClientConnected(session, sessionId, nodeId);
       Instant now = Instant.now();
       authBuilder.reset().date(now).host(snHost).path("/solaruser/api/v1/sec/instr/view")
           .queryParams(singletonMap("id", instructionId.toString()));
-      SolarNodeInstructionState state = solarSshService.getInstructionState(instructionId,
-          now.toEpochMilli(), authBuilder.build());
+      SolarNodeInstructionState state;
+      try {
+        state = solarSshService.getInstructionState(instructionId, now.toEpochMilli(),
+            authBuilder.build());
+      } catch (RateLimitExceededException e) {
+        log.debug("Rate limited checking token {} {} instruction {}; will check again", tokenId,
+            topic, instructionId);
+        continue;
+      }
       if (state == SolarNodeInstructionState.Completed) {
         log.info("Token {} {} instruction {} completed", tokenId, topic, instructionId);
         while (System.currentTimeMillis() < expire) {
@@ -260,12 +275,6 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
         log.info("Token {} {} instruction {} was declined.", tokenId, topic, instructionId);
         throw new RuntimeSshException("Session " + sessionId + " node " + nodeId + " instruction "
             + instructionId + " was declined.");
-      }
-      // wait a few ticks
-      try {
-        Thread.sleep(instructionIncompleteWaitMs);
-      } catch (InterruptedException e) {
-        break;
       }
     }
     throw new IOException("Timeout waiting " + this.maxNodeInstructionWaitSecs + "s for session "
@@ -350,8 +359,8 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
   }
 
   /**
-   * Set the number of milliseconds to wait after checking for a node instruction to complete when
-   * discovered the instruction is not complete yet, before checking the instruction status again.
+   * Set the number of milliseconds to wait before each check of the status of a node instruction,
+   * including the first, while the instruction is not complete.
    * 
    * @param instructionIncompleteWaitMs
    *        the wait time, in milliseconds; defaults to

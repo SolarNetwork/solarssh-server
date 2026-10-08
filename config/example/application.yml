@@ -6,6 +6,15 @@
 solarnet.baseUrl: https://data.solarnetwork.net
 
 ###############################################################################
+# solarnet.rateLimit.maxWaitMs <integer>
+# 
+# SolarNet rate limits the requests made with each token. When it rejects a
+# request for exceeding the limit, the request is retried once SolarNet says it
+# can be, for up to this many milliseconds in total. Set to 0 to not retry.
+
+solarnet.rateLimit.maxWaitMs: 5000
+
+###############################################################################
 # solarnet.auth.timeoutSeconds <integer>
 # solarnet.auth.instructionCompletedWaitMs <integer>
 # solarnet.auth.instructionIncompleteWaitMs <integer>
@@ -20,8 +29,8 @@ solarnet.baseUrl: https://data.solarnetwork.net
 # instruction status changes to `Completed`, to give some time for the node's
 # SSH connection to SolarSSH to actually get established, which can take
 # several seconds on slow network connections. The `instructionIncompleteWaitMs`
-# is a "pause" time between calls to check the status of the `StartRemoteSsh`
-# instruction, while it is still incomplete.
+# is a "pause" time before each call to check the status of the `StartRemoteSsh`
+# instruction, including the first, while it is still incomplete.
 #
 # The `maxConcurrent` property is the maximum number of direct SSH
 # authentication attempts to process at once. Each one can take up to

@@ -50,7 +50,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Main service configuration.
  * 
  * @author matt
- * @version 1.1
+ * @version 1.2
  */
 @Configuration
 @EnableScheduling
@@ -95,6 +95,9 @@ public class ServiceConfig {
   @Value("${solarnet.baseUrl:https://data.solarnetwork.net}")
   private String solarNetBaseUrl = "https://data.solarnetwork.net";
 
+  @Value("${solarnet.rateLimit.maxWaitMs:5000}")
+  private long solarNetRateLimitMaxWaitMs = DefaultSolarNetClient.DEFAULT_RATE_LIMIT_MAX_WAIT_MS;
+
   @Value("${ssh.direct.port:9022}")
   private int sshDirectPort = 9022;
 
@@ -135,6 +138,7 @@ public class ServiceConfig {
   public SolarNetClient solarNetClient() {
     DefaultSolarNetClient client = new DefaultSolarNetClient();
     client.setApiBaseUrl(solarNetBaseUrl);
+    client.setRateLimitMaxWaitMs(solarNetRateLimitMaxWaitMs);
     return client;
   }
 
