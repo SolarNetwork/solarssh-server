@@ -115,7 +115,7 @@ public class DefaultSolarSshdServer extends AbstractSshdServer implements SolarS
       return null;
     }
     List<AbstractSession> sessions = server.getActiveSessions();
-    log.debug("{} active sessions: {}", sessions != null ? sessions.size() : 0, sessions);
+    log.debug("{} active sessions: {}", sessions.size(), sessions);
     AbstractSession session = sessions.stream().filter(s -> sessionId.equals(s.getUsername()))
         .findFirst().orElse(null);
     return (ServerSession) session;
