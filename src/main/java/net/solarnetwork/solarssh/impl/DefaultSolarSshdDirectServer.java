@@ -33,6 +33,10 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.sshd.common.io.IoSession;
 import org.apache.sshd.common.session.Session;
@@ -66,8 +70,14 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
   /** The default port to listen on. */
   public static final int DEFAULT_LISTEN_PORT = 9022;
 
+  /**
+   * The default value for the {@code authMaxConcurrent} property.
+   */
+  public static final int DEFAULT_AUTH_MAX_CONCURRENT = 100;
+
   private final SolarSshService solarSshService;
   private final ActorDao actorDao;
+  private int authMaxConcurrent = DEFAULT_AUTH_MAX_CONCURRENT;
 
   // CHECKSTYLE OFF: LineLength
   private long instructionCompletedWaitMs = SolarSshPasswordAuthenticator.DEFAULT_INSTRUCTION_COMPLETED_WAIT_MS;
@@ -75,6 +85,7 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
   // CHECKSTYLE OFF: LineLength
 
   private SshServer server;
+  private ExecutorService authExecutor;
 
   /**
    * Constructor.
@@ -118,7 +129,12 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
       bf.setMaxFails(getBruteForceMaxTries());
       auth = bf;
     }
-    s.setPasswordAuthenticator(auth);
+
+    // authentication can wait minutes for the node to connect, so run it off the I/O threads
+    authExecutor = new ThreadPoolExecutor(0, authMaxConcurrent, 60L, TimeUnit.SECONDS,
+        new SynchronousQueue<>(),
+        Thread.ofPlatform().name("SolarSshDirectAuth-", 1).daemon(true).factory());
+    s.setPasswordAuthenticator(new AsyncPasswordAuthenticator(auth, authExecutor));
 
     // password auth only: by default sshd also enables keyboard-interactive (which delegates to
     // the same password authenticator) and public key auth via ~/.ssh/authorized_keys; this does
@@ -147,6 +163,10 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
       } catch (IOException e) {
         log.warn("Communication error stopping SSH server: {}", e.getMessage());
       }
+    }
+    ExecutorService exec = authExecutor;
+    if (exec != null) {
+      exec.shutdownNow();
     }
   }
 
@@ -274,6 +294,28 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
    */
   public void setInstructionIncompleteWaitMs(long instructionIncompleteWaitMs) {
     this.instructionIncompleteWaitMs = instructionIncompleteWaitMs;
+  }
+
+  /**
+   * Set the maximum number of authentication attempts to process concurrently.
+   * 
+   * <p>
+   * Each attempt can take up to {@link #getAuthTimeoutSecs()} to complete, while waiting for the
+   * node to connect. Attempts made while this many are already in progress fail immediately. This
+   * must be configured before {@link #start()} is called.
+   * </p>
+   * 
+   * @param authMaxConcurrent
+   *        the maximum number of concurrent authentication attempts; defaults to
+   *        {@link #DEFAULT_AUTH_MAX_CONCURRENT}
+   * @throws IllegalArgumentException
+   *         if {@code authMaxConcurrent} is less than 1
+   */
+  public void setAuthMaxConcurrent(int authMaxConcurrent) {
+    if (authMaxConcurrent < 1) {
+      throw new IllegalArgumentException("authMaxConcurrent must be at least 1");
+    }
+    this.authMaxConcurrent = authMaxConcurrent;
   }
 
 }

@@ -9,6 +9,7 @@ solarnet.baseUrl: https://data.solarnetwork.net
 # solarnet.auth.timeoutSeconds <integer>
 # solarnet.auth.instructionCompletedWaitMs <integer>
 # solarnet.auth.instructionIncompleteWaitMs <integer>
+# solarnet.auth.maxConcurrent <integer>
 # 
 # The `timeoutSeconds` property is the overall maximum amount of time to wait
 # for the SolarNetwork direct SSH authentication process to complete, which
@@ -21,11 +22,17 @@ solarnet.baseUrl: https://data.solarnetwork.net
 # several seconds on slow network connections. The `instructionIncompleteWaitMs`
 # is a "pause" time between calls to check the status of the `StartRemoteSsh`
 # instruction, while it is still incomplete.
+#
+# The `maxConcurrent` property is the maximum number of direct SSH
+# authentication attempts to process at once. Each one can take up to
+# `timeoutSeconds` to complete; attempts made while this many are already in
+# progress are rejected.
 
 solarnet.auth:
   timeoutSeconds: 300
   instructionCompletedWaitMs: 1000
   instructionIncompleteWaitMs: 1000
+  maxConcurrent: 100
 
 ssh:
   ###############################################################################

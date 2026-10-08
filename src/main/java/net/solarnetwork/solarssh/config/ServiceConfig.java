@@ -50,7 +50,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Main service configuration.
  * 
  * @author matt
- * @version 1.0
+ * @version 1.1
  */
 @Configuration
 @EnableScheduling
@@ -88,6 +88,9 @@ public class ServiceConfig {
 
   @Value("${solarnet.auth.instructionIncompleteWaitMs:1000}")
   private long instructionIncompleteWaitMs = 1000L;
+
+  @Value("${solarnet.auth.maxConcurrent:100}")
+  private int authMaxConcurrent = 100;
 
   @Value("${solarnet.baseUrl:https://data.solarnetwork.net}")
   private String solarNetBaseUrl = "https://data.solarnetwork.net";
@@ -167,6 +170,7 @@ public class ServiceConfig {
     service.setAuthTimeoutSecs(authTimeoutSecs);
     service.setInstructionCompletedWaitMs(instructionCompletedWaitMs);
     service.setInstructionIncompleteWaitMs(instructionIncompleteWaitMs);
+    service.setAuthMaxConcurrent(authMaxConcurrent);
     service.setBruteForceDenyList(bruteForceDenyList);
     service.setBruteForceMaxTries(bruteForceMaxTries);
     return service;

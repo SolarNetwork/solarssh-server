@@ -42,6 +42,8 @@ ext {
 
     libraries = [
         // Test dependencies.
+        junit: 'org.junit.jupiter:junit-jupiter',
+        junitLauncher: 'org.junit.platform:junit-platform-launcher',
         mockito: 'org.mockito:mockito-core',
         mockitoJupiter: 'org.mockito:mockito-junit-jupiter'
     ]
@@ -102,8 +104,10 @@ dependencies {
     implementation 'org.mitre.dsmiley.httpproxy:smiley-http-proxy-servlet:2.0'
     
     // Testing
-    testImplementation libraries.mockito,
+    testImplementation libraries.junit,
+            libraries.mockito,
             libraries.mockitoJupiter
+    testRuntimeOnly libraries.junitLauncher
 	testImplementation 'ch.qos.logback:logback-classic:1.5.18'
 }
 
