@@ -24,6 +24,7 @@ package net.solarnetwork.solarssh.domain;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.sshd.client.session.ClientSession;
 import org.apache.sshd.common.session.Session;
@@ -36,12 +37,13 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * A SSH session model object.
  * 
  * @author matt
- * @version 1.1
+ * @version 1.2
  */
 @JsonPropertyOrder({ "sessionId", "created", "nodeId", "host", "port", "reversePort",
     "startInstructionId", "stopInstructionId", "lastUsed" })
 public class SshSession {
 
+  private final AtomicReference<ClientSession> clientSession = new AtomicReference<>();
   private final long created;
   private final String id;
   private final Long nodeId;
@@ -53,7 +55,6 @@ public class SshSession {
   private boolean established;
   private Long startInstructionId;
   private Long stopInstructionId;
-  private ClientSession clientSession;
   private Session serverSession;
   private Session directServerSession;
   private String tokenId;
@@ -154,12 +155,36 @@ public class SshSession {
 
   @JsonIgnore
   public ClientSession getClientSession() {
-    return clientSession;
+    return clientSession.get();
   }
 
   @JsonIgnore
   public void setClientSession(ClientSession clientSession) {
-    this.clientSession = clientSession;
+    this.clientSession.set(clientSession);
+  }
+
+  /**
+   * Set the client session, returning the one it replaces.
+   * 
+   * @param clientSession
+   *        the client session to set, or {@literal null} to clear it
+   * @return the previous client session, or {@literal null} if there was none
+   * @since 1.2
+   */
+  public ClientSession replaceClientSession(ClientSession clientSession) {
+    return this.clientSession.getAndSet(clientSession);
+  }
+
+  /**
+   * Clear the client session, but only if it is the given one.
+   * 
+   * @param clientSession
+   *        the client session expected to be set
+   * @return {@literal true} if the client session was cleared
+   * @since 1.2
+   */
+  public boolean clearClientSession(ClientSession clientSession) {
+    return this.clientSession.compareAndSet(clientSession, null);
   }
 
   @JsonIgnore

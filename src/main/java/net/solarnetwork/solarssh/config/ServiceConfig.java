@@ -117,7 +117,7 @@ public class ServiceConfig {
    * 
    * @return the service
    */
-  @Bean(initMethod = "init")
+  @Bean(initMethod = "init", destroyMethod = "shutdown")
   public DefaultSolarSshService solarSshService() {
     DefaultSolarSshService service = new DefaultSolarSshService(solarNetClient());
     service.setHost(sshHost);

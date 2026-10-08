@@ -31,7 +31,9 @@ import static net.solarnetwork.solarssh.service.SolarNetClient.USER_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -43,9 +45,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -81,8 +86,11 @@ import org.apache.sshd.common.io.IoWriteFuture;
 import org.apache.sshd.common.kex.BuiltinDHFactories;
 import org.apache.sshd.common.kex.KexProposalOption;
 import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
+import org.apache.sshd.common.keyprovider.KeyPairProvider;
 import org.apache.sshd.common.util.buffer.Buffer;
 import org.apache.sshd.common.util.net.SshdSocketAddress;
+import org.apache.sshd.server.SshServer;
+import org.apache.sshd.server.command.AbstractCommandSupport;
 import org.apache.sshd.server.forward.AcceptAllForwardingFilter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,11 +98,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.FileSystemResource;
 
+import net.solarnetwork.domain.datum.GeneralDatumMetadata;
 import net.solarnetwork.solarssh.dao.ActorDao;
 import net.solarnetwork.solarssh.dao.SolarNodeDao;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.SolarNetInstruction;
 import net.solarnetwork.solarssh.domain.SolarNodeInstructionState;
+import net.solarnetwork.solarssh.domain.SshCredentials;
 import net.solarnetwork.solarssh.domain.SshSession;
 import net.solarnetwork.solarssh.service.SolarNetClient;
 
@@ -118,6 +128,8 @@ public class SolarSshServersIntegrationTests {
   private static final String TOKEN_SECRET = "secret";
   private static final String DIRECT_USERNAME = NODE_ID + ":" + TOKEN_ID;
   private static final long TIMEOUT_SECS = 10;
+  private static final String NODE_SHELL_USERNAME = "solar";
+  private static final String NODE_SHELL_PASSWORD = "solar";
 
   @TempDir
   private Path tmpDir;
@@ -132,6 +144,7 @@ public class SolarSshServersIntegrationTests {
   private DefaultSolarSshService service;
   private DefaultSolarSshdServer nodeServer;
   private DefaultSolarSshdDirectServer directServer;
+  private SshServer nodeShellServer;
   private SshClient client;
   private int nodePort;
   private int directPort;
@@ -163,6 +176,8 @@ public class SolarSshServersIntegrationTests {
         });
     given(solarNetClient.queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH), eq(NODE_ID), any(),
         anyLong(), anyString())).willAnswer(invocation -> instructionIds.incrementAndGet());
+    given(solarNetClient.getNodeMetadata(eq(NODE_ID), anyLong(), anyString()))
+        .willReturn(new GeneralDatumMetadata());
     given(solarNetClient.getInstruction(anyLong(), anyLong(), anyString()))
         .willAnswer(invocation -> {
           SolarNetInstruction instr = new SolarNetInstruction();
@@ -218,6 +233,10 @@ public class SolarSshServersIntegrationTests {
    */
   @AfterEach
   public void teardown() throws IOException {
+    service.shutdown();
+    if (nodeShellServer != null) {
+      nodeShellServer.stop();
+    }
     client.stop();
     directServer.stop();
     nodeServer.stop();
@@ -279,6 +298,10 @@ public class SolarSshServersIntegrationTests {
   }
 
   private ClientSession connectNode(String sessionId, int rport, KeyPair key) {
+    return connectNode(sessionId, rport, key, echoServer.getLocalPort());
+  }
+
+  private ClientSession connectNode(String sessionId, int rport, KeyPair key, int targetPort) {
     try {
       ClientSession node = client.connect(sessionId, "127.0.0.1", nodePort)
           .verify(TIMEOUT_SECS, SECONDS).getSession();
@@ -286,11 +309,52 @@ public class SolarSshServersIntegrationTests {
       node.addPublicKeyIdentity(key);
       node.auth().verify(TIMEOUT_SECS, SECONDS);
       node.startRemotePortForwarding(new SshdSocketAddress("127.0.0.1", rport),
-          new SshdSocketAddress("127.0.0.1", echoServer.getLocalPort()));
+          new SshdSocketAddress("127.0.0.1", targetPort));
       return node;
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * Start an SSH server playing the node's own SSH daemon, with an echo shell that exits on an
+   * {@literal exit} line.
+   */
+  private SshServer startNodeShellServer() throws IOException, GeneralSecurityException {
+    nodeShellServer = SshServer.setUpDefaultServer();
+    nodeShellServer.setHost("127.0.0.1");
+    nodeShellServer.setPort(0);
+    nodeShellServer.setKeyPairProvider(KeyPairProvider.wrap(newKeyPair()));
+    nodeShellServer.setPasswordAuthenticator((username, password, session) -> {
+      return NODE_SHELL_USERNAME.equals(username) && NODE_SHELL_PASSWORD.equals(password);
+    });
+    nodeShellServer.setShellFactory(channel -> new AbstractCommandSupport("echo", null) {
+
+      @Override
+      public void run() {
+        try {
+          BufferedReader in = new BufferedReader(
+              new InputStreamReader(getInputStream(), UTF_8));
+          String line;
+          while ((line = in.readLine()) != null && !"exit".equals(line)) {
+            getOutputStream().write((line + "\n").getBytes(UTF_8));
+            getOutputStream().flush();
+          }
+          onExit(0);
+        } catch (IOException e) {
+          onExit(1, e.getMessage());
+        }
+      }
+    });
+    nodeShellServer.start();
+    return nodeShellServer;
+  }
+
+  private SshSession attachNodeShell(SshSession sess, String password, PipedOutputStream terminalIn,
+      OutputStream terminalOut) throws IOException {
+    return service.attachTerminal(sess.getId(), Instant.now().toEpochMilli(), "auth",
+        new SshCredentials(NODE_SHELL_USERNAME, password), null,
+        new PipedInputStream(terminalIn), terminalOut);
   }
 
   private static String echoLine(OutputStream out, BufferedReader in, String line)
@@ -394,6 +458,96 @@ public class SolarSshServersIntegrationTests {
         "Key the node has not published rejected");
     assertNull(sess.getServerSession(), "Node session not bound");
     assertNotNull(service.findOne(sess.getId()), "Session still available to the real node");
+  }
+
+  @Test
+  public void attachTerminal() throws Exception {
+    // GIVEN
+    SshServer nodeShell = startNodeShellServer();
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+    connectNode(sess.getId(), sess.getReverseSshPort(), nodeKey, nodeShell.getPort());
+    assertEventually(() -> sess.getServerSession() != null, "Node session bound");
+    PipedOutputStream terminalIn = new PipedOutputStream();
+    ByteArrayOutputStream terminalOut = new ByteArrayOutputStream();
+
+    // WHEN
+    attachNodeShell(sess, NODE_SHELL_PASSWORD, terminalIn, terminalOut);
+    terminalIn.write("ping\n".getBytes(UTF_8));
+    terminalIn.flush();
+
+    // THEN
+    assertNotNull(sess.getClientSession(), "Terminal attached");
+    assertEventually(() -> terminalOut.toString(UTF_8).contains("ping"), "Shell reached");
+
+    // and WHEN
+    terminalIn.write("exit\n".getBytes(UTF_8));
+    terminalIn.flush();
+
+    // THEN
+    assertEventually(() -> sess.getClientSession() == null, "Terminal detached");
+    assertEventually(() -> nodeShell.getActiveSessions().isEmpty(),
+        "Terminal connection closed when shell exits");
+    assertNotNull(service.findOne(sess.getId()), "Node session remains");
+  }
+
+  @Test
+  public void attachTerminalReplacesExistingTerminal() throws Exception {
+    // GIVEN
+    SshServer nodeShell = startNodeShellServer();
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+    connectNode(sess.getId(), sess.getReverseSshPort(), nodeKey, nodeShell.getPort());
+    assertEventually(() -> sess.getServerSession() != null, "Node session bound");
+    attachNodeShell(sess, NODE_SHELL_PASSWORD, new PipedOutputStream(),
+        new ByteArrayOutputStream());
+    final ClientSession first = sess.getClientSession();
+    PipedOutputStream terminalIn = new PipedOutputStream();
+    ByteArrayOutputStream terminalOut = new ByteArrayOutputStream();
+
+    // WHEN
+    attachNodeShell(sess, NODE_SHELL_PASSWORD, terminalIn, terminalOut);
+
+    // THEN
+    final ClientSession second = sess.getClientSession();
+    assertNotNull(second, "Terminal attached");
+    assertEventually(() -> !first.isOpen(), "Replaced terminal connection closed");
+    assertEventually(() -> nodeShell.getActiveSessions().size() == 1,
+        "Only the new terminal is connected");
+    assertSame(second, sess.getClientSession(),
+        "Closing the replaced terminal does not detach the new one");
+    terminalIn.write("ping\n".getBytes(UTF_8));
+    terminalIn.flush();
+    assertEventually(() -> terminalOut.toString(UTF_8).contains("ping"), "New terminal works");
+  }
+
+  @Test
+  public void attachTerminalBadPasswordReleasesResources() throws Exception {
+    // GIVEN
+    SshServer nodeShell = startNodeShellServer();
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+    connectNode(sess.getId(), sess.getReverseSshPort(), nodeKey, nodeShell.getPort());
+    assertEventually(() -> sess.getServerSession() != null, "Node session bound");
+    assertThrows(IOException.class,
+        () -> attachNodeShell(sess, "not the password", new PipedOutputStream(),
+            new ByteArrayOutputStream()),
+        "Bad password rejected");
+    assertEventually(() -> nodeShell.getActiveSessions().isEmpty(), "Connection closed");
+    final int threadCount = Thread.activeCount();
+
+    // WHEN
+    final int attempts = 10;
+    for (int i = 0; i < attempts; i++) {
+      assertThrows(IOException.class,
+          () -> attachNodeShell(sess, "not the password", new PipedOutputStream(),
+              new ByteArrayOutputStream()),
+          "Bad password rejected");
+    }
+
+    // THEN
+    assertNull(sess.getClientSession(), "Terminal not attached");
+    assertEventually(() -> nodeShell.getActiveSessions().isEmpty(),
+        "Failed terminal connections closed");
+    assertTrue(Thread.activeCount() < threadCount + attempts,
+        "Failed terminal connections do not leak threads");
   }
 
   @Test

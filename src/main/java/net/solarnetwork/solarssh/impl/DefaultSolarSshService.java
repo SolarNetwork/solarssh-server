@@ -73,7 +73,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Default implementation of {@link SolarSshService}.
  * 
  * @author matt
- * @version 1.2
+ * @version 1.3
  */
 public class DefaultSolarSshService implements SolarSshService, SshSessionDao, PingTest {
 
@@ -88,6 +88,8 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
   private final SolarNetClient solarNetClient;
   private final ConcurrentMap<Integer, SshSession> portSessionMap = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, SshSession> sessionMap = new ConcurrentHashMap<>();
+
+  private SshClient client;
 
   /**
    * Constructor.
@@ -106,6 +108,37 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
   public void init() {
     log.info("SolarSshService configured as host {}:{} using local ports {}:{}", host, port,
         minPort, maxPort);
+  }
+
+  /**
+   * Stop the shared SSH client used for terminal connections, if started.
+   */
+  public synchronized void shutdown() {
+    if (client != null) {
+      client.stop();
+      client = null;
+    }
+  }
+
+  /**
+   * Get the SSH client shared by all terminal connections, starting it if needed.
+   * 
+   * <p>
+   * A single client is shared so that each terminal connection does not create its own I/O
+   * threads; closing a terminal closes only its client session.
+   * </p>
+   * 
+   * @return the started client
+   */
+  private synchronized SshClient client() {
+    if (client == null) {
+      SshClient c = SshClient.setUpDefaultClient();
+      c.setHostConfigEntryResolver(HostConfigEntryResolver.EMPTY); // no need
+      c.setKeyIdentityProvider(KeyIdentityProvider.EMPTY_KEYS_PROVIDER); // no need
+      c.start();
+      client = c;
+    }
+    return client;
   }
 
   @Override
@@ -268,7 +301,11 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
     //       caller has authorization as a user for this node...
 
     ClientSession clientSession = createClient(sess, nodeCredentials, settings, in, out);
-    sess.setClientSession(clientSession);
+    ClientSession oldClientSession = sess.replaceClientSession(clientSession);
+    if (oldClientSession != null) {
+      log.info("Closing terminal replaced by new terminal on SshSession {}", sess.getId());
+      oldClientSession.close(false);
+    }
 
     Map<String, Object> auditProps = sess.auditEventMap("ATTACH-TERM");
     auditProps.put("date", System.currentTimeMillis());
@@ -280,14 +317,20 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
 
   private ClientSession createClient(SshSession sess, SshCredentials credentials,
       SshTerminalSettings settings, InputStream in, OutputStream out) throws IOException {
-    SshClient client = SshClient.setUpDefaultClient();
-    client.setHostConfigEntryResolver(HostConfigEntryResolver.EMPTY); // no need
-    client.setKeyIdentityProvider(KeyIdentityProvider.EMPTY_KEYS_PROVIDER); // no need
-    client.start();
-
-    ClientSession session = client
+    ClientSession session = client()
         .connect(credentials.getUsername(), "127.0.0.1", sess.getReverseSshPort())
         .verify(30, TimeUnit.SECONDS).getSession();
+    try {
+      openShell(sess, session, credentials, settings, in, out);
+    } catch (IOException | RuntimeException e) {
+      session.close(true);
+      throw e;
+    }
+    return session;
+  }
+
+  private void openShell(SshSession sess, ClientSession session, SshCredentials credentials,
+      SshTerminalSettings settings, InputStream in, OutputStream out) throws IOException {
     if (credentials.getPassword() != null) {
       session.addPasswordIdentity(credentials.getPassword());
     }
@@ -311,7 +354,9 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
 
       @Override
       public void operationComplete(CloseFuture future) {
-        sess.setClientSession(null);
+        // a newer terminal may have replaced this one
+        sess.clearClientSession(session);
+        session.close(false);
         try {
           out.close();
         } catch (IOException e) {
@@ -329,8 +374,6 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
     channel.setOut(channelOut);
     channel.setErr(channelOut);
     channel.open().verify(30, TimeUnit.SECONDS);
-
-    return session;
   }
 
   @Override
@@ -360,10 +403,9 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
     if (sess == null) {
       return;
     }
-    ClientSession clientSession = sess.getClientSession();
+    ClientSession clientSession = sess.replaceClientSession(null);
     if (clientSession != null) {
       clientSession.close(false);
-      sess.setClientSession(null);
     }
     Session serverSession = sess.getServerSession();
     if (serverSession != null) {
