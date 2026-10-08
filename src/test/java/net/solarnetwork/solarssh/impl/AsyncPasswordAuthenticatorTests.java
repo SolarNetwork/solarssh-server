@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
 import java.util.concurrent.CompletableFuture;
@@ -74,6 +75,9 @@ public class AsyncPasswordAuthenticatorTests {
   public void setup() {
     executor = Executors.newCachedThreadPool();
     auth = new AsyncPasswordAuthenticator(delegate, executor);
+
+    // the client stays connected unless a test says otherwise
+    lenient().when(session.isOpen()).thenReturn(true);
   }
 
   @AfterEach
@@ -130,6 +134,35 @@ public class AsyncPasswordAuthenticatorTests {
 
     // THEN
     assertFalse(result.get(5, SECONDS), "Delegate exception treated as failure");
+  }
+
+  @Test
+  public void clientDisconnectedFailureNotSent() {
+    // GIVEN
+    auth = new AsyncPasswordAuthenticator(delegate, Runnable::run);
+    given(session.isOpen()).willReturn(false);
+    given(delegate.authenticate(USERNAME, PASSWORD, session)).willReturn(false);
+
+    // WHEN
+    CompletableFuture<Boolean> result = asyncResult(session);
+
+    // THEN
+    assertFalse(result.isDone(), "Failure not sent to a disconnected client");
+    asyncResult(session); // asserts the attempt is no longer in progress
+  }
+
+  @Test
+  public void clientDisconnectedSuccessStillSent() {
+    // GIVEN
+    auth = new AsyncPasswordAuthenticator(delegate, Runnable::run);
+    lenient().when(session.isOpen()).thenReturn(false);
+    given(delegate.authenticate(USERNAME, PASSWORD, session)).willReturn(true);
+
+    // WHEN
+    CompletableFuture<Boolean> result = asyncResult(session);
+
+    // THEN
+    assertTrue(result.getNow(false), "Success is always sent");
   }
 
   @Test

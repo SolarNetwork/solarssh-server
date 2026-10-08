@@ -146,7 +146,11 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
       } catch (AuthorizationException e) {
         log.info("Authorization failed creating new SshSession for {}", username);
       } catch (IOException e) {
-        log.info("Communication error creating new SshSession: {}", e.toString());
+        if (session.isOpen()) {
+          log.info("Communication error creating new SshSession: {}", e.toString());
+        } else {
+          log.info("Abandoned new SshSession for {}: {}", username, e.getMessage());
+        }
         // if we started the node remote SSH, stop it now
         if (sshSession != null) {
           instructionParams.put("topic", INSTRUCTION_TOPIC_STOP_REMOTE_SSH);

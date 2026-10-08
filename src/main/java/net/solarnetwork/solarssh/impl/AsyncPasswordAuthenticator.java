@@ -48,7 +48,8 @@ import org.slf4j.LoggerFactory;
  * <p>
  * The delegate is expected to be synchronous, and any exception it throws is treated as an
  * authentication failure. Only one authentication can be in progress per session: any further
- * attempt made while one is in progress fails immediately, without invoking the delegate.
+ * attempt made while one is in progress fails immediately, without invoking the delegate. If the
+ * client disconnects before a failed attempt completes, the failure is not sent.
  * </p>
  * 
  * @author matt
@@ -110,12 +111,20 @@ public class AsyncPasswordAuthenticator implements PasswordAuthenticator {
     try {
       authed = delegate.authenticate(username, password, session);
     } catch (Exception e) {
-      log.warn("Authentication attempt [{}] from {} failed: {}", username,
-          session.getRemoteAddress(), e.toString());
+      if (session.isOpen()) {
+        log.warn("Authentication attempt [{}] from {} failed: {}", username,
+            session.getRemoteAddress(), e.toString());
+      }
     } finally {
       // clear before completing, so a retry sent as soon as the client sees the result is accepted
       pending.remove(session);
-      result.setAuthed(authed);
+      if (authed || session.isOpen()) {
+        result.setAuthed(authed);
+      } else {
+        // the client has gone, so there is no one to send the failure to
+        log.debug("Authentication attempt [{}] from {} abandoned by client", username,
+            session.getRemoteAddress());
+      }
     }
   }
 
