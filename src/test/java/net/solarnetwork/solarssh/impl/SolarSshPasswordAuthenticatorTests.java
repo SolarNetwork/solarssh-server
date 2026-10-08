@@ -22,16 +22,23 @@
 
 package net.solarnetwork.solarssh.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -44,6 +51,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import net.solarnetwork.solarssh.AuthorizationException;
 import net.solarnetwork.solarssh.dao.ActorDao;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.SolarNodeInstructionState;
@@ -54,7 +62,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Test cases for the {@link SolarSshPasswordAuthenticator} class.
  * 
  * @author matt
- * @version 1.0
+ * @version 1.1
  */
 @ExtendWith(MockitoExtension.class)
 public class SolarSshPasswordAuthenticatorTests {
@@ -94,11 +102,14 @@ public class SolarSshPasswordAuthenticatorTests {
         "localhost", 8022, 50000, 50001);
     sshSession.setStartInstructionId(INSTRUCTION_ID);
 
-    given(actorDao.getAuthenticatedActor(NODE_ID, TOKEN_ID, PASSWORD)).willReturn(actor);
-    given(solarSshService.createNewSession(eq(NODE_ID), anyLong(), anyString()))
-        .willReturn(sshSession);
-    given(solarSshService.startSession(eq(sshSession.getId()), anyLong(), anyString()))
-        .willReturn(sshSession);
+    lenient().when(actorDao.getAuthenticatedActor(NODE_ID, TOKEN_ID, PASSWORD)).thenReturn(actor);
+    lenient().when(solarSshService.createNewSession(eq(NODE_ID), anyLong(), anyString()))
+        .thenReturn(sshSession);
+    lenient().when(solarSshService.startSession(eq(sshSession.getId()), anyLong(), anyString()))
+        .thenReturn(sshSession);
+    lenient().when(solarSshService.findOne(sshSession.getId())).thenReturn(sshSession);
+    // no earlier attempt on this connection has a session
+    lenient().when(solarSshService.findOne(session)).thenReturn(null);
   }
 
   @Test
@@ -108,13 +119,112 @@ public class SolarSshPasswordAuthenticatorTests {
     given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
         .willReturn(SolarNodeInstructionState.Completed);
     sshSession.setServerSession(mock(Session.class));
-    given(solarSshService.findOne(sshSession.getId())).willReturn(sshSession);
 
     // WHEN
     boolean result = auth.authenticate(USERNAME, PASSWORD, session);
 
     // THEN
     assertTrue(result, "Authenticated once node connected");
+    assertEquals(session, sshSession.getDirectServerSession(), "Session bound to client");
+    assertEquals(TOKEN_ID, sshSession.getTokenId(), "Token ID saved for stopping the node later");
+    then(solarSshService).should(never()).stopSession(anyString(), anyLong(), anyString());
+    then(solarSshService).should(never()).delete(any());
+  }
+
+  @Test
+  public void nodeAlreadyConnectedForClient() throws Exception {
+    // GIVEN
+    // an earlier attempt on this connection connected the node, but its result was discarded
+    sshSession.setDirectServerSession(session);
+    sshSession.setServerSession(mock(Session.class));
+    given(solarSshService.findOne(session)).willReturn(sshSession);
+
+    // WHEN
+    boolean result = auth.authenticate(USERNAME, PASSWORD, session);
+
+    // THEN
+    assertTrue(result, "Authenticated with the node already connected");
+    then(solarSshService).should(never()).createNewSession(anyLong(), anyLong(), anyString());
+    then(solarSshService).should(never()).startSession(anyString(), anyLong(), anyString());
+  }
+
+  @Test
+  public void badPassword() throws Exception {
+    // GIVEN
+    given(actorDao.getAuthenticatedActor(NODE_ID, TOKEN_ID, "not the secret")).willReturn(null);
+
+    // WHEN
+    boolean result = auth.authenticate(USERNAME, "not the secret", session);
+
+    // THEN
+    assertFalse(result, "Bad password not authenticated");
+    then(solarSshService).should(never()).createNewSession(anyLong(), anyLong(), anyString());
+  }
+
+  @Test
+  public void startInstructionNotQueued() throws Exception {
+    // GIVEN
+    sshSession.setStartInstructionId(null);
+    given(solarSshService.startSession(eq(sshSession.getId()), anyLong(), anyString()))
+        .willThrow(new AuthorizationException("Unable to queue StartRemoteSsh instruction"));
+
+    // WHEN
+    boolean result = auth.authenticate(USERNAME, PASSWORD, session);
+
+    // THEN
+    assertFalse(result, "Not authenticated without a StartRemoteSsh instruction");
+    then(solarSshService).should(never()).stopSession(anyString(), anyLong(), anyString());
+    then(solarSshService).should().delete(sshSession);
+  }
+
+  @Test
+  public void instructionDeclined() throws Exception {
+    // GIVEN
+    given(session.isOpen()).willReturn(true);
+    given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
+        .willReturn(SolarNodeInstructionState.Declined);
+
+    // WHEN
+    assertThrows(RuntimeSshException.class, () -> auth.authenticate(USERNAME, PASSWORD, session),
+        "Declined instruction fails the attempt");
+
+    // THEN
+    then(solarSshService).should().stopSession(eq(sshSession.getId()), anyLong(), anyString());
+  }
+
+  @Test
+  public void stopInstructionNotQueued() throws Exception {
+    // GIVEN
+    given(session.isOpen()).willReturn(true, false);
+    given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
+        .willReturn(SolarNodeInstructionState.Queued);
+    given(solarSshService.stopSession(eq(sshSession.getId()), anyLong(), anyString()))
+        .willThrow(new IOException("HTTP result status not in the 200-299 range: 429 null"));
+
+    // WHEN
+    assertThrows(RuntimeSshException.class, () -> auth.authenticate(USERNAME, PASSWORD, session),
+        "Disconnect ends the attempt with an exception");
+
+    // THEN
+    then(solarSshService).should().delete(sshSession);
+  }
+
+  @Test
+  public void sessionAlreadyEndedWhenClientDisconnects() throws Exception {
+    // GIVEN
+    given(session.isOpen()).willReturn(true, false);
+    given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
+        .willReturn(SolarNodeInstructionState.Queued);
+    // the server ended the session when the client disconnected
+    given(solarSshService.findOne(sshSession.getId())).willReturn(null);
+
+    // WHEN
+    assertThrows(RuntimeSshException.class, () -> auth.authenticate(USERNAME, PASSWORD, session),
+        "Disconnect ends the attempt with an exception");
+
+    // THEN
+    then(solarSshService).should(never()).stopSession(anyString(), anyLong(), anyString());
+    then(solarSshService).should(never()).delete(any());
   }
 
   @Test
@@ -143,7 +253,6 @@ public class SolarSshPasswordAuthenticatorTests {
     given(session.isOpen()).willReturn(true, true, false);
     given(solarSshService.getInstructionState(eq(INSTRUCTION_ID), anyLong(), anyString()))
         .willReturn(SolarNodeInstructionState.Completed);
-    given(solarSshService.findOne(sshSession.getId())).willReturn(sshSession);
 
     // WHEN
     assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
@@ -153,7 +262,8 @@ public class SolarSshPasswordAuthenticatorTests {
     }, "Stopped waiting once the client disconnected");
 
     // THEN
-    then(solarSshService).should().findOne(sshSession.getId());
+    // once while waiting for the node, and once to check the session still exists before ending it
+    then(solarSshService).should(times(2)).findOne(sshSession.getId());
     then(solarSshService).should().stopSession(eq(sshSession.getId()), anyLong(), anyString());
   }
 

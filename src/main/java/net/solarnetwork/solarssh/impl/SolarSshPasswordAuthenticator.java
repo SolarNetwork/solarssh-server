@@ -55,7 +55,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * {@link PasswordAuthenticator} for direct SolarSSH connections.
  * 
  * @author matt
- * @version 1.2
+ * @version 1.3
  */
 public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
 
@@ -109,69 +109,118 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
     }
     final Long nodeId = directUsername.getNodeId();
     final String tokenId = directUsername.getTokenId();
-    SshSession sshSession = null;
     Actor actor = actorDao.getAuthenticatedActor(nodeId, tokenId, password);
-    if (actor != null) {
-      // node + token checks out; create new node SSH session now
-      Instant now = Instant.now();
-      Snws2AuthorizationBuilder authBuilder = new Snws2AuthorizationBuilder(tokenId)
-          .saveSigningKey(password).date(now).host(snHost)
-          .path("/solaruser/api/v1/sec/instr/viewPending")
-          .queryParams(singletonMap("nodeId", nodeId.toString()));
-      Map<String, String> instructionParams = null;
-      try {
-        sshSession = solarSshService.createNewSession(nodeId, now.toEpochMilli(),
-            authBuilder.build());
-        sshSession.setDirectServerSession(session);
-        sshSession.setTokenSecret(password);
-        sshSession.setEstablished(true);
+    if (actor == null) {
+      return false;
+    }
 
-        instructionParams = SolarNetClient.createRemoteSshInstructionParams(sshSession);
-        // CHECKSTYLE OFF: LineLength
-        log.info(
-            "Authenticated token {} for node {}; requesting node to connect to SolarSSH with parameters {}",
-            tokenId, nodeId, instructionParams);
-        // CHECKSTYLE ON: LineLength
-        instructionParams.put("nodeId", nodeId.toString());
-        instructionParams.put("topic", INSTRUCTION_TOPIC_START_REMOTE_SSH);
-        now = Instant.now();
-        authBuilder.reset().method(HttpMethod.POST.toString()).date(now).host(snHost)
-            .path("/solaruser/api/v1/sec/instr/add")
-            .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-            .queryParams(instructionParams);
-        sshSession = solarSshService.startSession(sshSession.getId(), now.toEpochMilli(),
-            authBuilder.build());
-        return waitForNodeInstructionToComplete(session, sshSession.getId(), nodeId, tokenId,
-            INSTRUCTION_TOPIC_START_REMOTE_SSH, sshSession.getStartInstructionId(), authBuilder);
-      } catch (AuthorizationException e) {
-        log.info("Authorization failed creating new SshSession for {}", username);
-      } catch (IOException e) {
-        if (session.isOpen()) {
-          log.info("Communication error creating new SshSession: {}", e.toString());
-        } else {
-          log.info("Abandoned new SshSession for {}: {}", username, e.getMessage());
-        }
-        // if we started the node remote SSH, stop it now
-        if (sshSession != null) {
-          instructionParams.put("topic", INSTRUCTION_TOPIC_STOP_REMOTE_SSH);
-          now = Instant.now();
-          authBuilder.reset().method(HttpMethod.POST.toString()).date(now).host(snHost)
-              .path("/solaruser/api/v1/sec/instr/add")
-              .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-              .queryParams(instructionParams);
-          try {
-            solarSshService.stopSession(sshSession.getId(), now.toEpochMilli(),
-                authBuilder.build());
-          } catch (Exception e2) {
-            // ignore
-          }
-          log.info("Issued {} instruction for token {} node {} with parameters {}",
-              INSTRUCTION_TOPIC_STOP_REMOTE_SSH, tokenId, nodeId, instructionParams);
-        }
-        throw new RuntimeSshException("Communication error creating new SshSession", e);
+    // an earlier attempt on this connection may have connected the node but had its result
+    // discarded, because the client sent another request before that attempt completed
+    SshSession sshSession = solarSshService.findOne(session);
+    if (sshSession != null && nodeId.equals(sshSession.getNodeId())
+        && sshSession.getServerSession() != null) {
+      log.info("Authenticated token {} for node {}; node already connected to session {}",
+          tokenId, nodeId, sshSession.getId());
+      return true;
+    }
+
+    // node + token checks out; create new node SSH session now
+    Instant now = Instant.now();
+    Snws2AuthorizationBuilder authBuilder = new Snws2AuthorizationBuilder(tokenId)
+        .saveSigningKey(password).date(now).host(snHost)
+        .path("/solaruser/api/v1/sec/instr/viewPending")
+        .queryParams(singletonMap("nodeId", nodeId.toString()));
+    sshSession = null;
+    boolean authenticated = false;
+    try {
+      sshSession = solarSshService.createNewSession(nodeId, now.toEpochMilli(),
+          authBuilder.build());
+      sshSession.setDirectServerSession(session);
+      sshSession.setTokenId(tokenId);
+      sshSession.setTokenSecret(password);
+      sshSession.setEstablished(true);
+
+      Map<String, String> instructionParams = SolarNetClient
+          .createRemoteSshInstructionParams(sshSession);
+      // CHECKSTYLE OFF: LineLength
+      log.info(
+          "Authenticated token {} for node {}; requesting node to connect to SolarSSH with parameters {}",
+          tokenId, nodeId, instructionParams);
+      // CHECKSTYLE ON: LineLength
+      instructionParams.put("nodeId", nodeId.toString());
+      instructionParams.put("topic", INSTRUCTION_TOPIC_START_REMOTE_SSH);
+      now = Instant.now();
+      authBuilder.reset().method(HttpMethod.POST.toString()).date(now).host(snHost)
+          .path("/solaruser/api/v1/sec/instr/add")
+          .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+          .queryParams(instructionParams);
+      sshSession = solarSshService.startSession(sshSession.getId(), now.toEpochMilli(),
+          authBuilder.build());
+      authenticated = waitForNodeInstructionToComplete(session, sshSession.getId(), nodeId,
+          tokenId, INSTRUCTION_TOPIC_START_REMOTE_SSH, sshSession.getStartInstructionId(),
+          authBuilder);
+      return authenticated;
+    } catch (AuthorizationException e) {
+      log.info("Authorization failed creating new SshSession for {}", username);
+      return false;
+    } catch (IOException e) {
+      if (session.isOpen()) {
+        log.info("Communication error creating new SshSession: {}", e.toString());
+      } else {
+        log.info("Abandoned new SshSession for {}: {}", username, e.getMessage());
+      }
+      throw new RuntimeSshException("Communication error creating new SshSession", e);
+    } finally {
+      if (!authenticated && sshSession != null) {
+        endSession(sshSession, tokenId, authBuilder);
       }
     }
-    return false;
+  }
+
+  /**
+   * End a session that did not lead to a successful authentication.
+   * 
+   * <p>
+   * If the node was asked to connect, it is asked to disconnect again. The session is deleted even
+   * if that request fails, which also closes any connection the node has made.
+   * </p>
+   * 
+   * @param sshSession
+   *        the session to end
+   * @param tokenId
+   *        the token ID
+   * @param authBuilder
+   *        the authorization builder, configured with the token secret
+   */
+  private void endSession(SshSession sshSession, String tokenId,
+      Snws2AuthorizationBuilder authBuilder) {
+    if (solarSshService.findOne(sshSession.getId()) == null) {
+      // already ended, for example when the client disconnected
+      return;
+    }
+    if (sshSession.getStartInstructionId() != null) {
+      Map<String, String> instructionParams = SolarNetClient
+          .createRemoteSshInstructionParams(sshSession);
+      instructionParams.put("nodeId", sshSession.getNodeId().toString());
+      instructionParams.put("topic", INSTRUCTION_TOPIC_STOP_REMOTE_SSH);
+      Instant now = Instant.now();
+      authBuilder.reset().method(HttpMethod.POST.toString()).date(now).host(snHost)
+          .path("/solaruser/api/v1/sec/instr/add")
+          .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+          .queryParams(instructionParams);
+      try {
+        // this also deletes the session
+        solarSshService.stopSession(sshSession.getId(), now.toEpochMilli(), authBuilder.build());
+        log.info("Issued {} instruction for token {} node {} with parameters {}",
+            INSTRUCTION_TOPIC_STOP_REMOTE_SSH, tokenId, sshSession.getNodeId(),
+            instructionParams);
+        return;
+      } catch (IOException | RuntimeException e) {
+        log.info("Unable to issue {} instruction for token {} node {}: {}",
+            INSTRUCTION_TOPIC_STOP_REMOTE_SSH, tokenId, sshSession.getNodeId(), e.toString());
+      }
+    }
+    solarSshService.delete(sshSession);
   }
 
   private boolean waitForNodeInstructionToComplete(ServerSession session, String sessionId,

@@ -29,6 +29,7 @@ import static net.solarnetwork.solarssh.service.SolarNetClient.INSTRUCTION_TOPIC
 import static net.solarnetwork.solarssh.service.SolarNetClient.REVERSE_PORT_PARAM;
 import static net.solarnetwork.solarssh.service.SolarNetClient.USER_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -66,6 +67,8 @@ import java.util.function.BooleanSupplier;
 
 import org.apache.sshd.client.ClientBuilder;
 import org.apache.sshd.client.SshClient;
+import org.apache.sshd.client.auth.password.UserAuthPassword;
+import org.apache.sshd.client.auth.password.UserAuthPasswordFactory;
 import org.apache.sshd.client.channel.ChannelDirectTcpip;
 import org.apache.sshd.client.config.hosts.HostConfigEntryResolver;
 import org.apache.sshd.client.session.ClientSession;
@@ -73,9 +76,11 @@ import org.apache.sshd.client.session.ClientSession.ClientSessionEvent;
 import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.config.keys.writer.openssh.OpenSSHKeyEncryptionContext;
 import org.apache.sshd.common.config.keys.writer.openssh.OpenSSHKeyPairResourceWriter;
+import org.apache.sshd.common.io.IoWriteFuture;
 import org.apache.sshd.common.kex.BuiltinDHFactories;
 import org.apache.sshd.common.kex.KexProposalOption;
 import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
+import org.apache.sshd.common.util.buffer.Buffer;
 import org.apache.sshd.common.util.net.SshdSocketAddress;
 import org.apache.sshd.server.forward.AcceptAllForwardingFilter;
 import org.junit.jupiter.api.AfterEach;
@@ -117,6 +122,7 @@ public class SolarSshServersIntegrationTests {
 
   private final List<ClientSession> nodeSessions = new CopyOnWriteArrayList<>();
   private final AtomicLong instructionIds = new AtomicLong();
+  private volatile boolean nodeResponds = true;
   private ExecutorService executor;
   private ServerSocket echoServer;
   private SolarNetClient solarNetClient;
@@ -147,7 +153,9 @@ public class SolarSshServersIntegrationTests {
           Map<String, ?> params = invocation.getArgument(2);
           String sessionId = instructionParam(params, USER_PARAM);
           int rport = Integer.parseInt(instructionParam(params, REVERSE_PORT_PARAM));
-          executor.execute(() -> connectNode(sessionId, rport));
+          if (nodeResponds) {
+            executor.execute(() -> connectNode(sessionId, rport));
+          }
           return instructionIds.incrementAndGet();
         });
     given(solarNetClient.queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH), eq(NODE_ID), any(),
@@ -289,6 +297,14 @@ public class SolarSshServersIntegrationTests {
     }
   }
 
+  private int sessionCount() {
+    try {
+      return (Integer) service.performPingTest().getProperties().get("sessionCount");
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private ClientSession connectDirect(SshClient sshClient) throws IOException {
     ClientSession session = sshClient.connect(DIRECT_USERNAME, "127.0.0.1", directPort)
         .verify(TIMEOUT_SECS, SECONDS).getSession();
@@ -302,8 +318,7 @@ public class SolarSshServersIntegrationTests {
    */
   private void assertNodeSessionEnded(String sessionId) throws Exception {
     assertEventually(() -> service.findOne(sessionId) == null, "Session deleted");
-    assertEquals(0, service.performPingTest().getProperties().get("sessionCount"),
-        "No other sessions remain");
+    assertEquals(0, sessionCount(), "No other sessions remain");
     assertEventually(() -> nodeSessions.stream().noneMatch(ClientSession::isOpen),
         "Node connection closed");
     then(solarNetClient).should().queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH),
@@ -394,6 +409,66 @@ public class SolarSshServersIntegrationTests {
     then(solarNetClient).should(never()).queueInstruction(any(), any(), any(), anyLong(),
         anyString());
     direct.close();
+  }
+
+  @Test
+  public void directSshClientDisconnectsWhileWaitingForNode() throws Exception {
+    // GIVEN
+    nodeResponds = false;
+    ClientSession direct = connectDirect(client);
+    direct.auth();
+    assertEventually(() -> sessionCount() == 1, "Session created for client");
+
+    // WHEN
+    direct.close(false).await(TIMEOUT_SECS, SECONDS);
+
+    // THEN
+    assertEventually(() -> sessionCount() == 0, "Session deleted");
+    then(solarNetClient).should().queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH),
+        eq(NODE_ID), any(), anyLong(), anyString());
+  }
+
+  @Test
+  public void directSshClientDisconnectsBeforeAuthenticationCompletes() throws Exception {
+    // GIVEN
+    // send each password request twice without waiting for a reply: the second fails because the
+    // first is in progress, and the server then discards the result of the first, so the client
+    // never authenticates even though the node connects
+    SshClient pipeliningClient = SshClient.setUpDefaultClient();
+    pipeliningClient.setHostConfigEntryResolver(HostConfigEntryResolver.EMPTY);
+    pipeliningClient.setKeyIdentityProvider(KeyIdentityProvider.EMPTY_KEYS_PROVIDER);
+    pipeliningClient.setUserAuthFactories(List.of(new UserAuthPasswordFactory() {
+
+      @Override
+      public UserAuthPassword createUserAuth(ClientSession session) throws IOException {
+        return new UserAuthPassword() {
+
+          @Override
+          protected IoWriteFuture sendPassword(Buffer buffer, ClientSession session,
+              String oldPassword, String newPassword) throws Exception {
+            super.sendPassword(buffer, session, oldPassword, newPassword);
+            return super.sendPassword(buffer, session, oldPassword, newPassword);
+          }
+        };
+      }
+    }));
+    pipeliningClient.start();
+    try {
+      ClientSession direct = connectDirect(pipeliningClient);
+      direct.auth().await(TIMEOUT_SECS, SECONDS);
+      assertEventually(() -> !nodeSessions.isEmpty() && nodeSessions.get(0).isAuthenticated(),
+          "Node connected");
+      final String sessionId = nodeSessions.get(0).getUsername();
+      assertNotNull(service.findOne(sessionId), "Session exists while client connected");
+
+      // WHEN
+      direct.close(false).await(TIMEOUT_SECS, SECONDS);
+
+      // THEN
+      assertNodeSessionEnded(sessionId);
+    } finally {
+      pipeliningClient.stop();
+    }
   }
 
 }

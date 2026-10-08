@@ -50,7 +50,6 @@ import org.springframework.http.MediaType;
 
 import net.solarnetwork.security.Snws2AuthorizationBuilder;
 import net.solarnetwork.solarssh.dao.ActorDao;
-import net.solarnetwork.solarssh.domain.DirectSshUsername;
 import net.solarnetwork.solarssh.domain.SshSession;
 import net.solarnetwork.solarssh.service.SolarNetClient;
 import net.solarnetwork.solarssh.service.SolarSshService;
@@ -59,7 +58,7 @@ import net.solarnetwork.solarssh.service.SolarSshService;
  * Default SSH server service.
  * 
  * @author matt
- * @version 1.2
+ * @version 1.3
  */
 public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
 
@@ -200,68 +199,61 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
 
   @Override
   public void sessionClosed(Session session) {
-    String username = session.getUsername();
-    if (username != null) {
+    if (session.getUsername() != null) {
       logSessionClosed(session, AUDIT_DIRECT_DISCONNECT, null);
-      SshSession sess = sessionDao.findOne(session);
-      if (sess != null) {
-        // check if matching remote address
-        SocketAddress closedSessionRemoteAddress = null;
-        SocketAddress daoSessionRemoteAddress = null;
-        IoSession ioSession = session.getIoSession();
-        if (ioSession != null) {
-          closedSessionRemoteAddress = ioSession.getRemoteAddress();
+    }
+    // find by session rather than username, which is only set once authentication succeeds, so a
+    // node asked to connect by an attempt that never completed is stopped too
+    SshSession sess = sessionDao.findOne(session);
+    if (sess != null) {
+      // check if matching remote address
+      SocketAddress closedSessionRemoteAddress = null;
+      SocketAddress daoSessionRemoteAddress = null;
+      IoSession ioSession = session.getIoSession();
+      if (ioSession != null) {
+        closedSessionRemoteAddress = ioSession.getRemoteAddress();
+      }
+      Session daoServerSession = sess.getDirectServerSession();
+      if (daoServerSession != null) {
+        IoSession daoIoSession = daoServerSession.getIoSession();
+        if (daoIoSession != null) {
+          daoSessionRemoteAddress = daoIoSession.getRemoteAddress();
         }
-        Session daoServerSession = sess.getDirectServerSession();
-        if (daoServerSession != null) {
-          IoSession daoIoSession = daoServerSession.getIoSession();
-          if (daoIoSession != null) {
-            daoSessionRemoteAddress = daoIoSession.getRemoteAddress();
-          }
-        }
-        if (closedSessionRemoteAddress == null || daoSessionRemoteAddress == null
-            || closedSessionRemoteAddress.equals(daoSessionRemoteAddress)) {
-          try {
-            stopRemoteSsh(username, sess);
-          } finally {
-            sessionDao.delete(sess);
-          }
+      }
+      if (closedSessionRemoteAddress == null || daoSessionRemoteAddress == null
+          || closedSessionRemoteAddress.equals(daoSessionRemoteAddress)) {
+        try {
+          stopRemoteSsh(sess);
+        } finally {
+          sessionDao.delete(sess);
         }
       }
     }
   }
 
-  private void stopRemoteSsh(String username, SshSession sshSession) {
-    if (username == null || sshSession == null || sshSession.getTokenSecret() == null) {
-      return;
-    }
-    DirectSshUsername directUsername;
-    try {
-      directUsername = DirectSshUsername.valueOf(username);
-    } catch (IllegalArgumentException e) {
+  private void stopRemoteSsh(SshSession sshSession) {
+    if (sshSession.getTokenId() == null || sshSession.getTokenSecret() == null) {
       return;
     }
     Map<String, String> instructionParams = SolarNetClient
         .createRemoteSshInstructionParams(sshSession);
-    instructionParams.put("nodeId", directUsername.getNodeId().toString());
+    instructionParams.put("nodeId", sshSession.getNodeId().toString());
     instructionParams.put("topic", INSTRUCTION_TOPIC_STOP_REMOTE_SSH);
 
     Instant now = Instant.now();
-    Snws2AuthorizationBuilder authBuilder = new Snws2AuthorizationBuilder(
-        directUsername.getTokenId()).saveSigningKey(sshSession.getTokenSecret()).date(now)
-            .host(getSnHost()).method(HttpMethod.POST.toString())
-            .path("/solaruser/api/v1/sec/instr/add")
-            .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-            .queryParams(instructionParams);
+    Snws2AuthorizationBuilder authBuilder = new Snws2AuthorizationBuilder(sshSession.getTokenId())
+        .saveSigningKey(sshSession.getTokenSecret()).date(now).host(getSnHost())
+        .method(HttpMethod.POST.toString()).path("/solaruser/api/v1/sec/instr/add")
+        .contentType(MediaType.APPLICATION_FORM_URLENCODED_VALUE).queryParams(instructionParams);
 
     try {
-      sshSession = solarSshService.stopSession(sshSession.getId(), now.toEpochMilli(),
-          authBuilder.build());
+      solarSshService.stopSession(sshSession.getId(), now.toEpochMilli(), authBuilder.build());
       log.info("Issued {} instruction for token {} node {} with parameters {}",
-          INSTRUCTION_TOPIC_STOP_REMOTE_SSH, directUsername.getTokenId(),
-          directUsername.getNodeId(), instructionParams);
-    } catch (IOException e) {
-      log.warn("Communication error issuing StopRemoteSsh instruction: {}", e.toString());
+          INSTRUCTION_TOPIC_STOP_REMOTE_SSH, sshSession.getTokenId(), sshSession.getNodeId(),
+          instructionParams);
+    } catch (IOException | RuntimeException e) {
+      log.warn("Error issuing StopRemoteSsh instruction for session {}: {}", sshSession.getId(),
+          e.toString());
     }
   }
 

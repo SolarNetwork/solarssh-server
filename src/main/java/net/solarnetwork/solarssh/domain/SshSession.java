@@ -36,7 +36,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * A SSH session model object.
  * 
  * @author matt
- * @version 1.0
+ * @version 1.1
  */
 @JsonPropertyOrder({ "sessionId", "created", "nodeId", "host", "port", "reversePort",
     "startInstructionId", "stopInstructionId", "lastUsed" })
@@ -56,6 +56,7 @@ public class SshSession {
   private ClientSession clientSession;
   private Session serverSession;
   private Session directServerSession;
+  private String tokenId;
   private String tokenSecret;
 
   /**
@@ -179,6 +180,27 @@ public class SshSession {
   @JsonIgnore
   public void setDirectServerSession(Session serverSession) {
     this.directServerSession = serverSession;
+  }
+
+  /**
+   * Get the ID of the token that authorized a direct SSH session.
+   * 
+   * @return the token ID, or {@literal null} if this is not a direct SSH session
+   */
+  @JsonIgnore
+  public String getTokenId() {
+    return tokenId;
+  }
+
+  /**
+   * Set the ID of the token that authorized a direct SSH session.
+   * 
+   * @param tokenId
+   *        the token ID to set
+   */
+  @JsonIgnore
+  public void setTokenId(String tokenId) {
+    this.tokenId = tokenId;
   }
 
   @JsonIgnore
