@@ -65,14 +65,21 @@ public class WebMvcConfig implements WebMvcConfigurer {
     httpProxyController.cleanupExpiredSessions();
   }
 
+  /**
+   * Allow any origin to call the REST API.
+   *
+   * <p>
+   * The API is authorized with request headers, not cookies, so credentials are not allowed. The
+   * node proxy is deliberately not mapped, so other origins cannot read node responses.
+   * </p>
+   */
   @Override
   public void addCorsMappings(CorsRegistry registry) {
     // @formatter:off
-    registry.addMapping("/**")
-        .allowCredentials(true)
-        .allowedOriginPatterns(CorsConfiguration.ALL)
+    registry.addMapping("/api/**")
+        .allowedOrigins(CorsConfiguration.ALL)
         .maxAge(TimeUnit.HOURS.toSeconds(24))
-        .allowedMethods("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
+        .allowedMethods("GET", "HEAD")
         .allowedHeaders(
             "Authorization",
             "Content-MD5",
