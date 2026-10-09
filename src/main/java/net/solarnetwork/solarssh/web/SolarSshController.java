@@ -203,12 +203,15 @@ public class SolarSshController {
         }
         final int attempts = Byte.toUnsignedInt(count);
         String username = null;
-        Matcher m = SNWS_V2_KEY_PATTERN.matcher(preSignedAuthorization);
-        if (m.find()) {
-          username = m.group(1);
+        if (preSignedAuthorization != null) {
+          Matcher m = SNWS_V2_KEY_PATTERN.matcher(preSignedAuthorization);
+          if (m.find()) {
+            username = m.group(1);
+          }
         }
         if (attempts >= bruteForceMaxTries) {
-          logBruteForceDeny(username, src, attempts, "ip-block");
+          logBruteForceDeny(sessionId != null ? sessionId.toString() : null, username, src,
+              attempts, "ip-block");
           throw new RuntimeSshException("Blocked.");
         } else {
           log.info("{} authentication attempt [{}] failed: attempt {}", src, username, attempts);
@@ -217,7 +220,8 @@ public class SolarSshController {
           } else {
             bruteForceDenyList.replace(src, currCount, count);
           }
-          logBruteForceDeny(username, src, attempts, "ip-fail");
+          logBruteForceDeny(sessionId != null ? sessionId.toString() : null, username, src,
+              attempts, "ip-fail");
         }
       }
     } catch (UnknownHostException e) {
@@ -225,10 +229,10 @@ public class SolarSshController {
     }
   }
 
-  private void logBruteForceDeny(String username, InetAddress src, int count,
+  private void logBruteForceDeny(String sessionId, String username, InetAddress src, int count,
       String auditEventName) {
     log.info("{} authentication attempt [{}] blocked after {} attempts", src, username, count);
-    Map<String, Object> auditProps = Globals.auditEventMap(username, auditEventName);
+    Map<String, Object> auditProps = Globals.auditEventMap(sessionId, username, auditEventName);
     auditProps.put("remoteAddress", src);
     auditProps.put("attempts", count);
     AUDIT_LOG.info(getJSONString(auditProps, "{}"));

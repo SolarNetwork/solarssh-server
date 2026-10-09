@@ -90,7 +90,7 @@ public class BruteForceDenyEventListener implements IoServiceEventListener {
 
   private void logBruteForceDeny(InetAddress src, int count, String auditEventName) {
     log.info("{} connection blocked via brute force filter", src);
-    Map<String, Object> auditProps = Globals.auditEventMap(src.toString(), auditEventName);
+    Map<String, Object> auditProps = Globals.auditEventMap(null, src.toString(), auditEventName);
     auditProps.put("attempts", count);
     AUDIT_LOG.info(getJSONString(auditProps, "{}"));
   }

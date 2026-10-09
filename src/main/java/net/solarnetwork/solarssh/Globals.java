@@ -30,7 +30,7 @@ import net.solarnetwork.solarssh.domain.SshSession;
  * Some global references for the project.
  * 
  * @author matt
- * @version 1.0
+ * @version 2.0
  */
 public final class Globals {
 
@@ -59,13 +59,19 @@ public final class Globals {
    */
   public static Map<String, Object> auditEventMap(Session session, SshSession sess,
       String eventName) {
-    String sessionId = (sess != null ? sess.getId() : session.getUsername());
+    final String sessionId = (sess != null ? sess.getId() : null);
+    final String username = (session != null ? session.getUsername() : null);
     Map<String, Object> map;
     if (sess != null) {
       map = sess.auditEventMap(eventName);
     } else {
       map = new LinkedHashMap<>(8);
-      map.put("sessionId", sessionId);
+      if (sessionId != null) {
+        map.put("sessionId", sessionId);
+      }
+      if (username != null) {
+        map.put("username", username);
+      }
       map.put("event", eventName);
     }
     long now = System.currentTimeMillis();
@@ -81,14 +87,22 @@ public final class Globals {
    * Create an audit event map.
    * 
    * @param sessionId
-   *        the session ID or username
+   *        the session ID, if known
+   * @param username
+   *        the username, if known
    * @param eventName
    *        the event name
    * @return the map, never {@literal null}
    */
-  public static Map<String, Object> auditEventMap(String sessionId, String eventName) {
+  public static Map<String, Object> auditEventMap(String sessionId, String username,
+      String eventName) {
     Map<String, Object> map = new LinkedHashMap<>(8);
-    map.put("sessionId", sessionId);
+    if (sessionId != null) {
+      map.put("sessionId", sessionId);
+    }
+    if (username != null) {
+      map.put("username", username);
+    }
     map.put("event", eventName);
     long now = System.currentTimeMillis();
     map.put("date", now);
