@@ -184,6 +184,11 @@ public class DynamicDirectTcpipFactory extends TcpipFactory {
     }
 
     @Override
+    public byte[] getBytesConsumed() {
+      return delegate.getBytesConsumed();
+    }
+
+    @Override
     public byte[] getBytesConsumed(int from) {
       return delegate.getBytesConsumed(from);
     }
@@ -236,11 +241,6 @@ public class DynamicDirectTcpipFactory extends TcpipFactory {
     @Override
     public byte[] array() {
       return delegate.array();
-    }
-
-    @Override
-    public byte[] getBytesConsumed() {
-      return delegate.getBytesConsumed();
     }
 
     @Override

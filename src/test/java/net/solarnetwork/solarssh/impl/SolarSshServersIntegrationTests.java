@@ -500,7 +500,7 @@ public class SolarSshServersIntegrationTests {
           release.await(TIMEOUT_SECS, SECONDS);
           return instructionIds.incrementAndGet();
         });
-    Future<SshSession> first = executor
+    final Future<SshSession> first = executor
         .submit(() -> service.stopSession(sess.getId(), Instant.now().toEpochMilli(), "auth"));
     assertTrue(queueing.await(TIMEOUT_SECS, SECONDS), "First stop queueing instruction");
 
