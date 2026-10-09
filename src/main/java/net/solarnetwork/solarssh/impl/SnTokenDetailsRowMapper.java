@@ -23,7 +23,6 @@ import java.sql.SQLException;
 import org.springframework.jdbc.core.RowMapper;
 
 import net.solarnetwork.codec.JsonUtils;
-import net.solarnetwork.domain.BasicSecurityPolicy;
 import net.solarnetwork.domain.SecurityPolicy;
 import net.solarnetwork.solarssh.domain.SnTokenDetails;
 
@@ -92,7 +91,7 @@ public class SnTokenDetailsRowMapper implements RowMapper<SnTokenDetails> {
     String policyJson = rs.getString(policyCol);
     SecurityPolicy policy = null;
     if (policyJson != null) {
-      policy = JsonUtils.getObjectFromJSON(policyJson, BasicSecurityPolicy.class);
+      policy = JsonUtils.getObjectFromJSON(policyJson, SecurityPolicy.class);
     }
     // @formatter:off
     return SnTokenDetails.builder()
