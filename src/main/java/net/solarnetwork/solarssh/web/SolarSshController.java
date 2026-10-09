@@ -62,7 +62,7 @@ import net.solarnetwork.web.jakarta.security.WebConstants;
  * Web controller for connection commands.
  * 
  * @author matt
- * @version 1.3
+ * @version 1.4
  */
 @RestController
 @RequestMapping("/api/v1/ssh")
@@ -191,13 +191,8 @@ public class SolarSshController {
     if (bruteForceDenyList == null) {
       return;
     }
-    String remoteAddr = request.getRemoteAddr();
-    String proxyRemoteAddr = request.getHeader("X-Forwarded-For");
-    if (proxyRemoteAddr != null) {
-      remoteAddr = proxyRemoteAddr;
-    }
     try {
-      InetAddress src = InetAddress.getByName(remoteAddr);
+      InetAddress src = InetAddress.getByName(request.getRemoteAddr());
       if (!src.isLoopbackAddress()) {
         final Byte currCount = bruteForceDenyList.get(src);
         byte count = 0;
