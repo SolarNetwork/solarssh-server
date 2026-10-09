@@ -153,9 +153,14 @@ public class SolarSshController {
       HttpServletRequest request) throws IOException {
     long authorizationDate = request.getDateHeader(WebConstants.HEADER_DATE);
     String preSignedAuthorization = request.getHeader(PRESIGN_AUTHORIZATION_HEADER);
-    SshSession session = solarSshService.stopSession(sessionId, authorizationDate,
-        preSignedAuthorization);
-    return Response.response(session);
+    try {
+      SshSession session = solarSshService.stopSession(sessionId, authorizationDate,
+          preSignedAuthorization);
+      return Response.response(session);
+    } catch (AuthorizationException e) {
+      handleAuthFailureBruteForce(request, sessionId, preSignedAuthorization);
+      throw e;
+    }
   }
 
   /**
