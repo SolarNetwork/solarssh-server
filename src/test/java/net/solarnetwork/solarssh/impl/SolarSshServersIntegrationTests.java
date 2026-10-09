@@ -33,7 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -69,6 +68,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.sshd.client.ClientBuilder;
 import org.apache.sshd.client.SshClient;
@@ -130,6 +131,8 @@ public class SolarSshServersIntegrationTests {
   private static final long TIMEOUT_SECS = 10;
   private static final String NODE_SHELL_USERNAME = "solar";
   private static final String NODE_SHELL_PASSWORD = "solar";
+  private static final Pattern SSH_CLIENT_THREAD_NAME = Pattern
+      .compile("sshd-SshClient\\[(\\w+)\\]");
 
   @TempDir
   private Path tmpDir;
@@ -375,6 +378,23 @@ public class SolarSshServersIntegrationTests {
     }
   }
 
+  /**
+   * Count the started SSH clients, by the distinct client names in their thread names.
+   *
+   * <p>
+   * A started client keeps at least a timer thread alive until it is stopped. Counting clients
+   * rather than threads ignores the shared I/O pools, which start threads lazily up to a size
+   * based on the number of CPU cores.
+   * </p>
+   *
+   * @return the number of started SSH clients
+   */
+  private static long sshClientCount() {
+    return Thread.getAllStackTraces().keySet().stream()
+        .map(t -> SSH_CLIENT_THREAD_NAME.matcher(t.getName())).filter(Matcher::lookingAt)
+        .map(m -> m.group(1)).distinct().count();
+  }
+
   private int sessionCount() {
     try {
       return (Integer) service.performPingTest().getProperties().get("sessionCount");
@@ -531,7 +551,7 @@ public class SolarSshServersIntegrationTests {
             new ByteArrayOutputStream()),
         "Bad password rejected");
     assertEventually(() -> nodeShell.getActiveSessions().isEmpty(), "Connection closed");
-    final int threadCount = Thread.activeCount();
+    final long clientCount = sshClientCount();
 
     // WHEN
     final int attempts = 10;
@@ -546,8 +566,7 @@ public class SolarSshServersIntegrationTests {
     assertNull(sess.getClientSession(), "Terminal not attached");
     assertEventually(() -> nodeShell.getActiveSessions().isEmpty(),
         "Failed terminal connections closed");
-    assertTrue(Thread.activeCount() < threadCount + attempts,
-        "Failed terminal connections do not leak threads");
+    assertEquals(clientCount, sshClientCount(), "Failed terminal connections do not leak clients");
   }
 
   @Test
