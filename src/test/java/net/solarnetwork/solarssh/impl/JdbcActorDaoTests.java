@@ -22,17 +22,15 @@
 
 package net.solarnetwork.solarssh.impl;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.BDDAssertions.and;
+import static org.assertj.core.api.BDDAssertions.from;
+import static org.assertj.core.api.BDDAssertions.thenIllegalArgumentException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -42,6 +40,11 @@ import javax.cache.Cache;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
@@ -49,6 +52,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcOperations;
 
+import net.solarnetwork.domain.SecurityPolicy;
 import net.solarnetwork.solarssh.domain.Actor;
 import net.solarnetwork.solarssh.domain.ActorDetails;
 
@@ -62,8 +66,10 @@ import net.solarnetwork.solarssh.domain.ActorDetails;
  * @author matt
  * @version 1.0
  */
+@SuppressWarnings("static-access")
 @JdbcTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
+@ExtendWith(MockitoExtension.class)
 public class JdbcActorDaoTests {
 
   private static final Long TEST_LOC_ID = -1L;
@@ -72,6 +78,7 @@ public class JdbcActorDaoTests {
   private static final Long TEST_NODE_ID_2 = -2L;
   private static final String TEST_TOKEN_ID = "test-token-00000001";
   private static final String TEST_TOKEN_SECRET = "test-secret";
+  private static final String TEST_CACHE_KEY = "Token-" + TEST_TOKEN_ID;
 
   /**
    * Test configuration, so the test does not need the web application configuration.
@@ -83,6 +90,12 @@ public class JdbcActorDaoTests {
 
   @Autowired
   private JdbcOperations jdbcOps;
+
+  @Mock
+  private Cache<String, Actor> cache;
+
+  @Captor
+  private ArgumentCaptor<Actor> actorCaptor;
 
   private JdbcActorDao dao;
 
@@ -138,14 +151,26 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNotNull(result, "Actor returned for valid credentials");
-    assertEquals(TEST_TOKEN_ID, result.getTokenId(), "Token ID");
-    assertEquals(TEST_USER_ID, result.getUserId(), "Token owner user ID");
-    assertNull(result.getPolicy(), "No policy");
-    assertEquals(Set.of(TEST_NODE_ID, TEST_NODE_ID_2), result.getUserNodeIds(),
-        "All user nodes returned");
-    assertEquals(Set.of(TEST_NODE_ID, TEST_NODE_ID_2), result.getAllowedNodeIds(),
-        "All user nodes allowed");
+    // @formatter:off
+    and.then(result)
+        .as("Actor returned for valid credentials")
+        .isNotNull()
+        .as("Token ID")
+        .returns(TEST_TOKEN_ID, from(Actor::getTokenId))
+        .as("Token owner user ID")
+        .returns(TEST_USER_ID, from(Actor::getUserId))
+        .as("No policy")
+        .returns(null, from(Actor::getPolicy))
+        ;
+    and.then(result.getUserNodeIds())
+        .as("All user nodes returned")
+        .containsExactlyInAnyOrder(TEST_NODE_ID, TEST_NODE_ID_2)
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("All user nodes allowed")
+        .containsExactlyInAnyOrder(TEST_NODE_ID, TEST_NODE_ID_2)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -161,12 +186,24 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNotNull(result, "Actor returned for valid credentials with policy");
-    assertNotNull(result.getPolicy(), "Policy mapped");
-    assertEquals(Set.of(TEST_NODE_ID), result.getPolicy().getNodeIds(), "Policy node IDs");
-    assertEquals(notAfter, result.getPolicy().getNotAfter(), "Policy expiration");
-    assertEquals(Set.of(TEST_NODE_ID), result.getAllowedNodeIds(),
-        "Allowed nodes restricted by policy");
+    // @formatter:off
+    and.then(result)
+        .as("Actor returned for valid credentials with policy")
+        .isNotNull()
+        ;
+    and.then(result.getPolicy())
+        .as("Policy mapped")
+        .isNotNull()
+        .as("Policy node IDs")
+        .returns(Set.of(TEST_NODE_ID), from(SecurityPolicy::getNodeIds))
+        .as("Policy expiration")
+        .returns(notAfter, from(SecurityPolicy::getNotAfter))
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("Allowed nodes restricted by policy")
+        .containsExactly(TEST_NODE_ID)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -181,7 +218,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNotNull(result, "Actor returned when signing with custom host and path");
+    // @formatter:off
+    and.then(result)
+        .as("Actor returned when signing with custom host and path")
+        .isNotNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -194,7 +236,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, "not-the-secret");
 
     // THEN
-    assertNull(result, "No actor for wrong secret");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for wrong secret")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -206,7 +253,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for unknown token");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for unknown token")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -219,7 +271,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for disabled token");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for disabled token")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -233,7 +290,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for disabled user");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for disabled user")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -248,7 +310,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for expired token policy");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for expired token policy")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -274,7 +341,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for expired token policy returned by authenticate call");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for expired token policy returned by authenticate call")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -291,7 +363,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(otherNodeId, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for node owned by another user");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for node owned by another user")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -305,7 +382,12 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID_2, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for node not allowed by token policy");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for node not allowed by token policy")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -320,14 +402,17 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID_2, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNull(result, "No actor for archived node");
+    // @formatter:off
+    and.then(result)
+        .as("No actor for archived node")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
   public void cache_miss() {
     // GIVEN
-    @SuppressWarnings("unchecked")
-    Cache<String, Actor> cache = mock(Cache.class);
     dao.setActorCache(cache);
     givenActiveUserWithNodes();
     insertToken(TEST_USER_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET, "Active", null);
@@ -336,15 +421,23 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertNotNull(result, "Actor returned");
-    verify(cache).put("Token-" + TEST_TOKEN_ID, result);
+    then(cache).should().put(eq(TEST_CACHE_KEY), actorCaptor.capture());
+
+    // @formatter:off
+    and.then(result)
+        .as("Actor returned")
+        .isNotNull()
+        ;
+    and.then(actorCaptor.getValue())
+        .as("Returned actor cached")
+        .isSameAs(result)
+        ;
+    // @formatter:on
   }
 
   @Test
   public void cache_hit() {
     // GIVEN
-    @SuppressWarnings("unchecked")
-    Cache<String, Actor> cache = mock(Cache.class);
     dao.setActorCache(cache);
     givenActiveUserWithNodes();
     insertToken(TEST_USER_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET, "Active", null);
@@ -352,21 +445,25 @@ public class JdbcActorDaoTests {
     // node ID not owned in DB, to prove the cached actor is used
     final Long cachedNodeId = -99L;
     final Actor cached = new ActorDetails(TEST_TOKEN_ID, TEST_USER_ID, null, Set.of(cachedNodeId));
-    given(cache.get("Token-" + TEST_TOKEN_ID)).willReturn(cached);
+    given(cache.get(TEST_CACHE_KEY)).willReturn(cached);
 
     // WHEN
     Actor result = dao.getAuthenticatedActor(cachedNodeId, TEST_TOKEN_ID, TEST_TOKEN_SECRET);
 
     // THEN
-    assertSame(cached, result, "Cached actor returned");
-    verify(cache, never()).put(anyString(), any());
+    then(cache).should(never()).put(anyString(), any());
+
+    // @formatter:off
+    and.then(result)
+        .as("Cached actor returned")
+        .isSameAs(cached)
+        ;
+    // @formatter:on
   }
 
   @Test
   public void cache_hit_wrongSecret() {
     // GIVEN
-    @SuppressWarnings("unchecked")
-    Cache<String, Actor> cache = mock(Cache.class);
     dao.setActorCache(cache);
     givenActiveUserWithNodes();
     insertToken(TEST_USER_ID, TEST_TOKEN_ID, TEST_TOKEN_SECRET, "Active", null);
@@ -375,20 +472,36 @@ public class JdbcActorDaoTests {
     Actor result = dao.getAuthenticatedActor(TEST_NODE_ID, TEST_TOKEN_ID, "not-the-secret");
 
     // THEN
-    assertNull(result, "Credentials verified before the actor cache is consulted");
-    verify(cache, never()).get(anyString());
+    then(cache).shouldHaveNoInteractions();
+
+    // @formatter:off
+    and.then(result)
+        .as("Credentials verified before the actor cache is consulted")
+        .isNull()
+        ;
+    // @formatter:on
   }
 
   @Test
   public void setters_rejectNull() {
-    assertThrows(IllegalArgumentException.class, () -> dao.setAuthenticateCall(null),
-        "Null authenticate call rejected");
-    assertThrows(IllegalArgumentException.class, () -> dao.setAuthorizeCall(null),
-        "Null authorize call rejected");
-    assertThrows(IllegalArgumentException.class, () -> dao.setSnHost(null),
-        "Null host rejected");
-    assertThrows(IllegalArgumentException.class, () -> dao.setSnPath(null),
-        "Null path rejected");
+    // @formatter:off
+    thenIllegalArgumentException()
+        .as("Null authenticate call rejected")
+        .isThrownBy(() -> dao.setAuthenticateCall(null))
+        ;
+    thenIllegalArgumentException()
+        .as("Null authorize call rejected")
+        .isThrownBy(() -> dao.setAuthorizeCall(null))
+        ;
+    thenIllegalArgumentException()
+        .as("Null host rejected")
+        .isThrownBy(() -> dao.setSnHost(null))
+        ;
+    thenIllegalArgumentException()
+        .as("Null path rejected")
+        .isThrownBy(() -> dao.setSnPath(null))
+        ;
+    // @formatter:on
   }
 
 }

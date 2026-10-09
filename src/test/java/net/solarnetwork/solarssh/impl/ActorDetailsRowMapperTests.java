@@ -22,17 +22,13 @@
 
 package net.solarnetwork.solarssh.impl;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertIterableEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.BDDAssertions.and;
+import static org.assertj.core.api.BDDAssertions.from;
 import static org.mockito.BDDMockito.given;
 
 import java.sql.Array;
 import java.sql.ResultSet;
 import java.time.Instant;
-import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -40,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import net.solarnetwork.domain.SecurityPolicy;
 import net.solarnetwork.solarssh.domain.Actor;
 
 /**
@@ -48,6 +45,7 @@ import net.solarnetwork.solarssh.domain.Actor;
  * @author matt
  * @version 1.0
  */
+@SuppressWarnings("static-access")
 @ExtendWith(MockitoExtension.class)
 public class ActorDetailsRowMapperTests {
 
@@ -79,14 +77,26 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertNotNull(result, "Actor mapped");
-    assertEquals(TEST_TOKEN_ID, result.getTokenId(), "Token ID from constructor");
-    assertEquals(TEST_USER_ID, result.getUserId(), "User ID mapped");
-    assertNull(result.getPolicy(), "No policy mapped");
-    assertIterableEquals(List.of(1L, 2L, 3L), result.getUserNodeIds(),
-        "User node IDs mapped in array order");
-    assertIterableEquals(List.of(1L, 2L, 3L), result.getAllowedNodeIds(),
-        "All user node IDs allowed without policy");
+    // @formatter:off
+    and.then(result)
+        .as("Actor mapped")
+        .isNotNull()
+        .as("Token ID from constructor")
+        .returns(TEST_TOKEN_ID, from(Actor::getTokenId))
+        .as("User ID mapped")
+        .returns(TEST_USER_ID, from(Actor::getUserId))
+        .as("No policy mapped")
+        .returns(null, from(Actor::getPolicy))
+        ;
+    and.then(result.getUserNodeIds())
+        .as("User node IDs mapped in array order")
+        .containsExactly(1L, 2L, 3L)
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("All user node IDs allowed without policy")
+        .containsExactly(1L, 2L, 3L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -101,16 +111,28 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertNotNull(result.getPolicy(), "Policy mapped");
-    assertEquals(Set.of(1L, 3L), result.getPolicy().getNodeIds(), "Policy node IDs mapped");
-    assertEquals(Set.of("a", "b/*"), result.getPolicy().getSourceIds(),
-        "Policy source IDs mapped");
-    assertEquals(notAfter, result.getPolicy().getNotAfter(), "Policy expiration mapped");
-    assertEquals(Boolean.TRUE, result.getPolicy().getRefreshAllowed(),
-        "Policy refresh allowed mapped");
-    assertEquals(Set.of(1L, 2L, 3L), result.getUserNodeIds(), "User node IDs mapped");
-    assertEquals(Set.of(1L, 3L), result.getAllowedNodeIds(),
-        "Allowed node IDs restricted by policy");
+    // @formatter:off
+    and.then(result.getPolicy())
+        .as("Policy mapped")
+        .isNotNull()
+        .as("Policy node IDs mapped")
+        .returns(Set.of(1L, 3L), from(SecurityPolicy::getNodeIds))
+        .as("Policy source IDs mapped")
+        .returns(Set.of("a", "b/*"), from(SecurityPolicy::getSourceIds))
+        .as("Policy expiration mapped")
+        .returns(notAfter, from(SecurityPolicy::getNotAfter))
+        .as("Policy refresh allowed mapped")
+        .returns(Boolean.TRUE, from(SecurityPolicy::getRefreshAllowed))
+        ;
+    and.then(result.getUserNodeIds())
+        .as("User node IDs mapped")
+        .containsExactlyInAnyOrder(1L, 2L, 3L)
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("Allowed node IDs restricted by policy")
+        .containsExactlyInAnyOrder(1L, 3L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -122,8 +144,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertEquals(Set.of(1L), result.getAllowedNodeIds(),
-        "Policy node IDs not owned by user are not allowed");
+    // @formatter:off
+    and.then(result.getAllowedNodeIds())
+        .as("Policy node IDs not owned by user are not allowed")
+        .containsExactly(1L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -135,9 +161,18 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertNotNull(result.getPolicy(), "Empty policy mapped");
-    assertNull(result.getPolicy().getNodeIds(), "No policy node IDs");
-    assertEquals(Set.of(1L), result.getAllowedNodeIds(), "All user node IDs allowed");
+    // @formatter:off
+    and.then(result.getPolicy())
+        .as("Empty policy mapped")
+        .isNotNull()
+        .as("No policy node IDs")
+        .returns(null, from(SecurityPolicy::getNodeIds))
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("All user node IDs allowed")
+        .containsExactly(1L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -149,8 +184,16 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertTrue(result.getUserNodeIds().isEmpty(), "No user node IDs from SQL NULL array");
-    assertTrue(result.getAllowedNodeIds().isEmpty(), "No allowed node IDs from SQL NULL array");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("No user node IDs from SQL NULL array")
+        .isEmpty()
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("No allowed node IDs from SQL NULL array")
+        .isEmpty()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -164,7 +207,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertTrue(result.getUserNodeIds().isEmpty(), "No user node IDs from null array data");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("No user node IDs from null array data")
+        .isEmpty()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -176,7 +224,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertTrue(result.getUserNodeIds().isEmpty(), "No user node IDs from empty array");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("No user node IDs from empty array")
+        .isEmpty()
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -188,8 +241,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertIterableEquals(List.of(1L, 2L, 3L, 4L), result.getUserNodeIds(),
-        "Number node IDs converted to Long");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("Number node IDs converted to Long")
+        .containsExactly(1L, 2L, 3L, 4L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -201,8 +258,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertIterableEquals(List.of(1L, 3L), result.getUserNodeIds(),
-        "Non-number node IDs skipped");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("Non-number node IDs skipped")
+        .containsExactly(1L, 3L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -214,8 +275,12 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID).mapRow(rs, 0);
 
     // THEN
-    assertIterableEquals(List.of(2L, 1L), result.getUserNodeIds(),
-        "Duplicate node IDs collapsed, first-seen order kept");
+    // @formatter:off
+    and.then(result.getUserNodeIds())
+        .as("Duplicate node IDs collapsed, first-seen order kept")
+        .containsExactly(2L, 1L)
+        ;
+    // @formatter:on
   }
 
   @Test
@@ -231,12 +296,25 @@ public class ActorDetailsRowMapperTests {
     Actor result = new ActorDetailsRowMapper(TEST_TOKEN_ID, 5, 6, 7, 8).mapRow(rs, 0);
 
     // THEN
-    assertEquals(TEST_USER_ID, result.getUserId(), "User ID mapped from custom column");
-    assertEquals(Set.of(2L), result.getPolicy().getNodeIds(),
-        "Policy mapped from custom column");
-    assertEquals(Set.of(1L, 2L), result.getUserNodeIds(),
-        "Node IDs mapped from custom column");
-    assertEquals(Set.of(2L), result.getAllowedNodeIds(), "Allowed node IDs resolved");
+    // @formatter:off
+    and.then(result)
+        .as("User ID mapped from custom column")
+        .returns(TEST_USER_ID, from(Actor::getUserId))
+        ;
+    and.then(result.getPolicy())
+        .as("Policy mapped from custom column")
+        .isNotNull()
+        .returns(Set.of(2L), from(SecurityPolicy::getNodeIds))
+        ;
+    and.then(result.getUserNodeIds())
+        .as("Node IDs mapped from custom column")
+        .containsExactly(1L, 2L)
+        ;
+    and.then(result.getAllowedNodeIds())
+        .as("Allowed node IDs resolved")
+        .containsExactly(2L)
+        ;
+    // @formatter:on
   }
 
 }
