@@ -232,7 +232,9 @@ public class DefaultSolarSshdDirectServer extends AbstractSshdServer {
   }
 
   private void stopRemoteSsh(SshSession sshSession) {
-    if (sshSession.getTokenId() == null || sshSession.getTokenSecret() == null) {
+    if (sshSession.getTokenId() == null || sshSession.getTokenSecret() == null
+        || sshSession.isStopping()) {
+      // no credentials to stop with, or already stopping, for example when authentication failed
       return;
     }
     Map<String, String> instructionParams = SolarNetClient

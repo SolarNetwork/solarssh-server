@@ -199,7 +199,9 @@ public class SolarSshPasswordAuthenticator implements PasswordAuthenticator {
       // already ended, for example when the client disconnected
       return;
     }
-    if (sshSession.getStartInstructionId() != null) {
+    // if another caller is already stopping it, for example when the client disconnected, only
+    // delete the session so the node is not asked to stop twice
+    if (sshSession.getStartInstructionId() != null && !sshSession.isStopping()) {
       Map<String, String> instructionParams = SolarNetClient
           .createRemoteSshInstructionParams(sshSession);
       instructionParams.put("nodeId", sshSession.getNodeId().toString());

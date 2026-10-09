@@ -24,6 +24,7 @@ package net.solarnetwork.solarssh.domain;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.sshd.client.session.ClientSession;
@@ -44,6 +45,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 public class SshSession {
 
   private final AtomicReference<ClientSession> clientSession = new AtomicReference<>();
+  private final AtomicBoolean stopping = new AtomicBoolean();
   private final long created;
   private final String id;
   private final Long nodeId;
@@ -185,6 +187,41 @@ public class SshSession {
    */
   public boolean clearClientSession(ClientSession clientSession) {
     return this.clientSession.compareAndSet(clientSession, null);
+  }
+
+  /**
+   * Claim the right to stop this session.
+   * 
+   * <p>
+   * Only one caller can hold the claim at a time, so the node is asked to stop once even when
+   * several stop the session at the same time.
+   * </p>
+   * 
+   * @return {@literal true} if the claim was granted, {@literal false} if another caller holds it
+   * @since 1.2
+   */
+  public boolean beginStopping() {
+    return stopping.compareAndSet(false, true);
+  }
+
+  /**
+   * Release a claim granted by {@link #beginStopping()}, for example when stopping failed.
+   * 
+   * @since 1.2
+   */
+  public void cancelStopping() {
+    stopping.set(false);
+  }
+
+  /**
+   * Test if a caller is stopping this session.
+   * 
+   * @return {@literal true} if a claim granted by {@link #beginStopping()} is held
+   * @since 1.2
+   */
+  @JsonIgnore
+  public boolean isStopping() {
+    return stopping.get();
   }
 
   @JsonIgnore

@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -42,6 +43,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -63,8 +65,10 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -100,6 +104,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.FileSystemResource;
 
 import net.solarnetwork.domain.datum.GeneralDatumMetadata;
+import net.solarnetwork.solarssh.AuthorizationException;
 import net.solarnetwork.solarssh.dao.ActorDao;
 import net.solarnetwork.solarssh.dao.SolarNodeDao;
 import net.solarnetwork.solarssh.domain.Actor;
@@ -478,6 +483,56 @@ public class SolarSshServersIntegrationTests {
         "Key the node has not published rejected");
     assertNull(sess.getServerSession(), "Node session not bound");
     assertNotNull(service.findOne(sess.getId()), "Session still available to the real node");
+  }
+
+  @Test
+  public void stopSessionConcurrentlyQueuesOneInstruction() throws Exception {
+    // GIVEN
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+    connectNode(sess.getId(), sess.getReverseSshPort());
+    assertEventually(() -> sess.getServerSession() != null, "Node session bound");
+    // hold the first stop while it queues the instruction, like a slow SolarNetwork request
+    CountDownLatch queueing = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    given(solarNetClient.queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH), eq(NODE_ID), any(),
+        anyLong(), anyString())).willAnswer(invocation -> {
+          queueing.countDown();
+          release.await(TIMEOUT_SECS, SECONDS);
+          return instructionIds.incrementAndGet();
+        });
+    Future<SshSession> first = executor
+        .submit(() -> service.stopSession(sess.getId(), Instant.now().toEpochMilli(), "auth"));
+    assertTrue(queueing.await(TIMEOUT_SECS, SECONDS), "First stop queueing instruction");
+
+    // WHEN
+    assertThrows(AuthorizationException.class,
+        () -> service.stopSession(sess.getId(), Instant.now().toEpochMilli(), "auth"),
+        "Session being stopped is not available to stop again");
+    release.countDown();
+
+    // THEN
+    assertSame(sess, first.get(TIMEOUT_SECS, SECONDS), "First stop completes");
+    assertNodeSessionEnded(sess.getId());
+  }
+
+  @Test
+  public void stopSessionAgainAfterQueueFailure() throws Exception {
+    // GIVEN
+    SshSession sess = service.createNewSession(NODE_ID, Instant.now().toEpochMilli(), "auth");
+    given(solarNetClient.queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH), eq(NODE_ID), any(),
+        anyLong(), anyString())).willReturn(null).willReturn(instructionIds.incrementAndGet());
+    assertThrows(AuthorizationException.class,
+        () -> service.stopSession(sess.getId(), Instant.now().toEpochMilli(), "auth"),
+        "Stop fails when instruction not queued");
+    assertSame(sess, service.findOne(sess.getId()), "Session remains after failed stop");
+
+    // WHEN
+    service.stopSession(sess.getId(), Instant.now().toEpochMilli(), "auth");
+
+    // THEN
+    assertNull(service.findOne(sess.getId()), "Session deleted");
+    then(solarNetClient).should(times(2)).queueInstruction(eq(INSTRUCTION_TOPIC_STOP_REMOTE_SSH),
+        eq(NODE_ID), any(), anyLong(), anyString());
   }
 
   @Test

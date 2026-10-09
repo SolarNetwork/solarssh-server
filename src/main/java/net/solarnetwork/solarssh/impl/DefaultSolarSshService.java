@@ -380,23 +380,34 @@ public class DefaultSolarSshService implements SolarSshService, SshSessionDao, P
   public SshSession stopSession(String sessionId, long authorizationDate, String authorization)
       throws IOException {
     SshSession sess = sessionMap.get(sessionId);
-    if (sess == null) {
+    // a session already being stopped is treated as gone, so the node is asked to stop only once
+    if (sess == null || !sess.beginStopping()) {
       throw new AuthorizationException("Session " + sessionId + " not available");
     }
 
-    Map<String, String> instructionParams = SolarNetClient.createRemoteSshInstructionParams(sess);
+    boolean stopped = false;
+    try {
+      Map<String, String> instructionParams = SolarNetClient
+          .createRemoteSshInstructionParams(sess);
 
-    Long instructionId = solarNetClient.queueInstruction(INSTRUCTION_TOPIC_STOP_REMOTE_SSH,
-        sess.getNodeId(), instructionParams, authorizationDate, authorization);
+      Long instructionId = solarNetClient.queueInstruction(INSTRUCTION_TOPIC_STOP_REMOTE_SSH,
+          sess.getNodeId(), instructionParams, authorizationDate, authorization);
 
-    if (instructionId == null) {
-      throw new AuthorizationException(
-          "Unable to queue StopRemoteSsh instruction for session " + sessionId);
+      if (instructionId == null) {
+        throw new AuthorizationException(
+            "Unable to queue StopRemoteSsh instruction for session " + sessionId);
+      }
+
+      sess.setStopInstructionId(instructionId);
+      delete(sess);
+      stopped = true;
+      return sess;
+    } finally {
+      if (!stopped) {
+        // allow stopping to be tried again
+        sess.cancelStopping();
+      }
     }
-
-    sess.setStopInstructionId(instructionId);
-    delete(sess);
-    return sess;
   }
 
   private void endSession(SshSession sess) {
